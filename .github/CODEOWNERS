@@ -1,0 +1,22 @@
+# CODEOWNERS — auto-assign reviewers based on file paths
+# Format: <pattern>  <@github-username or @org/team>
+
+# Default owner for all files not matched below
+*                           @utpal74
+
+# Backend business logic — requires extra review
+backend/src/services/       @utpal74
+backend/src/helpers/crypto.js  @utpal74
+
+# Database schema and migrations — careful review required
+backend/prisma/             @utpal74
+
+# GitHub Actions workflows — infrastructure reviewer
+.github/workflows/          @utpal74
+.github/agents/             @utpal74
+
+# Documentation — PM / tech-writer review
+requirements.md             @utpal74
+architecture.md             @utpal74
+design-review.md            @utpal74
+CHANGELOG.md                @utpal74

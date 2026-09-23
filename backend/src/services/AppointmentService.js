@@ -80,7 +80,9 @@ async function findByIdOrPhone(idOrPhone, opts = {}) {
 
 async function cancelAppointment(id) {
   const appt = await findById(id);
-  if (appt.status === 'CANCELLED') throw Errors.APPOINTMENT_ALREADY_CANCELLED();
+  if (appt.status === 'CANCELLED' || appt.status === 'RESCHEDULED') {
+    throw Errors.APPOINTMENT_ALREADY_CANCELLED();
+  }
 
   return prisma.appointment.update({
     where: { id },

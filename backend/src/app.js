@@ -25,8 +25,12 @@ app.use(express.json());
 
 app.use(pinoHttp({ logger }));
 
+const sessionSecret = process.env.SESSION_SECRET;
+if (!sessionSecret && process.env.NODE_ENV === 'production') {
+  throw new Error('SESSION_SECRET environment variable is required in production');
+}
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'dev-secret-change-in-production',
+  secret: sessionSecret || 'dev-secret-not-for-production',
   resave: false,
   saveUninitialized: false,
   cookie: {
@@ -55,14 +59,14 @@ app.use('/api/doctors', authenticate, doctorsRouter);
 app.use('/api/slots', authenticate, slotsRouter);
 app.use('/api/appointments', authenticate, appointmentsRouter);
 
-// Global error handler
+// Global error handler — only domain errors (status < 500) expose their message
 app.use((err, req, res, _next) => {
   const status = err.status || 500;
   if (status >= 500) logger.error({ err }, 'Internal server error');
   res.status(status).json({
     error: {
       code: err.code || 'INTERNAL_ERROR',
-      message: err.message || 'An unexpected error occurred',
+      message: status < 500 ? err.message : 'An unexpected error occurred',
       field: err.field || null,
     },
   });

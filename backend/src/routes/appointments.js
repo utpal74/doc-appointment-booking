@@ -11,6 +11,7 @@ function toPublic(appt) {
   return {
     appointmentId: appt.id,
     patientName: appt.patientName,
+    doctorId: appt.doctor?.id,
     doctor: appt.doctor?.name,
     department: appt.doctor?.department?.name,
     appointmentDate: appt.appointmentDate,

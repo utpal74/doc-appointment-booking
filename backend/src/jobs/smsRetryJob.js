@@ -1,24 +1,9 @@
 const cron = require('node-cron');
 const prisma = require('../lib/prisma');
 const { decryptPhone } = require('../helpers/crypto');
+const { interpolate, formatDate, formatTime } = require('../helpers/smsFormat');
 const { dispatchSms, getTemplates } = require('../services/NotificationService');
 const logger = require('../helpers/logger');
-
-function interpolate(template, vars) {
-  return template.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? `{${key}}`);
-}
-
-function formatDate(date) {
-  const d = new Date(date);
-  return `${String(d.getUTCDate()).padStart(2, '0')}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${d.getUTCFullYear()}`;
-}
-
-function formatTime(slotTime) {
-  const [h, m] = slotTime.split(':').map(Number);
-  const period = h >= 12 ? 'PM' : 'AM';
-  const hour = h > 12 ? h - 12 : h === 0 ? 12 : h;
-  return `${String(hour).padStart(2, '0')}:${String(m).padStart(2, '0')} ${period}`;
-}
 
 async function retryFailedSms() {
   const failed = await prisma.smsLog.findMany({
@@ -50,7 +35,7 @@ async function retryFailedSms() {
 
     try {
       const phone = decryptPhone(appt.patientPhone);
-      await prisma.smsLog.update({ where: { id: log.id }, data: { attemptCount: { increment: 1 } } });
+      // dispatchSms handles its own attemptCount increment — do not pre-increment here
       await dispatchSms(phone, body, log.id);
     } catch (err) {
       logger.error({ logId: log.id, err: err.message }, 'SMS retry dispatch error');
@@ -59,7 +44,6 @@ async function retryFailedSms() {
 }
 
 function startRetryJob() {
-  // Run every 5 minutes
   cron.schedule('*/5 * * * *', () => {
     retryFailedSms().catch((err) => logger.error({ err }, 'SMS retry job error'));
   });

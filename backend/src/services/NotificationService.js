@@ -1,5 +1,6 @@
 const prisma = require('../lib/prisma');
 const { decryptPhone } = require('../helpers/crypto');
+const { interpolate, formatDate, formatTime } = require('../helpers/smsFormat');
 const logger = require('../helpers/logger');
 
 let twilioClient = null;
@@ -26,20 +27,9 @@ async function getTemplates() {
   return templateCache.data;
 }
 
-function interpolate(template, vars) {
-  return template.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? `{${key}}`);
-}
-
-function formatDate(date) {
-  const d = new Date(date);
-  return `${String(d.getUTCDate()).padStart(2, '0')}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${d.getUTCFullYear()}`;
-}
-
-function formatTime(slotTime) {
-  const [h, m] = slotTime.split(':').map(Number);
-  const period = h >= 12 ? 'PM' : 'AM';
-  const hour = h > 12 ? h - 12 : h === 0 ? 12 : h;
-  return `${String(hour).padStart(2, '0')}:${String(m).padStart(2, '0')} ${period}`;
+function normalisePhone(raw) {
+  // Strip any existing country-code prefix before prepending +91
+  return raw.replace(/^\+?91/, '');
 }
 
 async function dispatchSms(phone, body, logId) {
@@ -48,68 +38,73 @@ async function dispatchSms(phone, body, logId) {
     logger.warn('SMS skipped — Twilio not configured');
     await prisma.smsLog.update({
       where: { id: logId },
-      data: { status: 'FAILED', attemptCount: 1 },
+      data: { status: 'FAILED', attemptCount: { increment: 1 } },
     });
     return 'DISABLED';
   }
 
   try {
     const result = await Promise.race([
-      client.messages.create({ to: `+91${phone}`, from: process.env.TWILIO_PHONE_NUMBER, body }),
+      client.messages.create({ to: `+91${normalisePhone(phone)}`, from: process.env.TWILIO_PHONE_NUMBER, body }),
       new Promise((_, reject) => setTimeout(() => reject(new Error('Twilio timeout')), 2000)),
     ]);
     await prisma.smsLog.update({
       where: { id: logId },
-      data: { status: 'SENT', twilioMessageSid: result.sid, attemptCount: 1 },
+      data: { status: 'SENT', twilioMessageSid: result.sid, attemptCount: { increment: 1 } },
     });
     return 'SENT';
   } catch (err) {
     logger.error({ err: err.message }, 'SMS dispatch failed');
     await prisma.smsLog.update({
       where: { id: logId },
-      data: { status: 'FAILED', attemptCount: 1 },
+      data: { status: 'FAILED', attemptCount: { increment: 1 } },
     });
     return 'FAILED';
   }
 }
 
 async function send(appointment, messageType) {
-  const templates = await getTemplates();
-  const template = templates[messageType];
-  if (!template) {
-    logger.error({ messageType }, 'SMS template not found');
+  try {
+    const templates = await getTemplates();
+    const template = templates[messageType];
+    if (!template) {
+      logger.error({ messageType }, 'SMS template not found');
+      return 'FAILED';
+    }
+
+    const doctor = appointment.doctor;
+    const department = doctor?.department;
+    const vars = {
+      patientName: appointment.patientName,
+      doctorName: doctor?.name ?? 'Doctor',
+      department: department?.name ?? 'Clinic',
+      date: formatDate(appointment.appointmentDate),
+      time: formatTime(appointment.slotTime),
+      appointmentId: appointment.id,
+    };
+    const body = interpolate(template, vars);
+
+    const logEntry = await prisma.smsLog.create({
+      data: { appointmentId: appointment.id, messageType, status: 'PENDING', attemptCount: 0 },
+    });
+
+    const phone = decryptPhone(appointment.patientPhone);
+
+    // Fire and forget — do not await full result in request path
+    const resultPromise = dispatchSms(phone, body, logEntry.id);
+    resultPromise.catch((err) => logger.error({ err }, 'dispatchSms background error'));
+
+    // Return optimistic status after short race
+    const status = await Promise.race([
+      resultPromise,
+      new Promise((resolve) => setTimeout(() => resolve('PENDING_RETRY'), 2500)),
+    ]);
+
+    return status;
+  } catch (err) {
+    logger.error({ err }, 'NotificationService.send failed — SMS not sent');
     return 'FAILED';
   }
-
-  const doctor = appointment.doctor;
-  const department = doctor?.department;
-  const vars = {
-    patientName: appointment.patientName,
-    doctorName: doctor?.name ?? 'Doctor',
-    department: department?.name ?? 'Clinic',
-    date: formatDate(appointment.appointmentDate),
-    time: formatTime(appointment.slotTime),
-    appointmentId: appointment.id,
-  };
-  const body = interpolate(template, vars);
-
-  const logEntry = await prisma.smsLog.create({
-    data: { appointmentId: appointment.id, messageType, status: 'PENDING', attemptCount: 0 },
-  });
-
-  const phone = decryptPhone(appointment.patientPhone);
-
-  // Fire and forget — do not await full result in request path
-  const resultPromise = dispatchSms(phone, body, logEntry.id);
-  resultPromise.catch(() => {}); // errors already logged inside dispatchSms
-
-  // Return optimistic status after short race
-  const status = await Promise.race([
-    resultPromise,
-    new Promise((resolve) => setTimeout(() => resolve('PENDING_RETRY'), 2500)),
-  ]);
-
-  return status;
 }
 
 module.exports = {

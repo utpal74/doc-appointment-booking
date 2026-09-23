@@ -35,15 +35,7 @@ const smsTemplates = [
 async function main() {
   console.log('Seeding database...');
 
-  // Add partial unique index (Prisma does not support conditional indexes in schema)
-  await prisma.$executeRaw`
-    CREATE UNIQUE INDEX IF NOT EXISTS "UX_appt_slot"
-    ON "Appointment"("doctorId", "appointmentDate", "slotTime")
-    WHERE (status = 'CONFIRMED')
-  `;
-  console.log('✓ Partial unique index UX_appt_slot ensured');
-
-  // Seed departments and doctors
+  // Seed departments then doctors — single loop, upsert by name+dept
   for (const dept of departments) {
     const department = await prisma.department.upsert({
       where: { name: dept.name },
@@ -52,23 +44,11 @@ async function main() {
     });
 
     for (const doctorName of doctorsByDepartment[dept.name]) {
-      await prisma.doctor.upsert({
-        where: { id: `00000000-0000-0000-0000-${dept.name.slice(0, 4).toLowerCase().padEnd(12, '0')}-${doctorName.slice(-4)}`.slice(0, 36) },
-        update: {},
-        create: { name: doctorName, departmentId: department.id },
-      });
-    }
-  }
-
-  // Re-seed doctors properly (upsert by name+dept is cleaner)
-  const allDepts = await prisma.department.findMany();
-  for (const dept of allDepts) {
-    for (const doctorName of doctorsByDepartment[dept.name] || []) {
       const existing = await prisma.doctor.findFirst({
-        where: { name: doctorName, departmentId: dept.id },
+        where: { name: doctorName, departmentId: department.id },
       });
       if (!existing) {
-        await prisma.doctor.create({ data: { name: doctorName, departmentId: dept.id } });
+        await prisma.doctor.create({ data: { name: doctorName, departmentId: department.id } });
       }
     }
   }

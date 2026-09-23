@@ -11,7 +11,10 @@
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "db:reset": "prisma migrate reset --force",
-    "setup": "node scripts/hash-password.js"
+    "setup": "node scripts/hash-password.js",
+    "test": "jest --runInBand --forceExit",
+    "test:unit": "jest --runInBand --forceExit --testPathPattern=unit",
+    "test:integration": "jest --runInBand --forceExit --testPathPattern=integration"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
@@ -32,7 +35,9 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "jest": "^29.7.0",
     "pino-pretty": "^13.0.0",
-    "prisma": "^5.22.0"
+    "prisma": "^5.22.0",
+    "supertest": "^7.0.0"
   }
 }

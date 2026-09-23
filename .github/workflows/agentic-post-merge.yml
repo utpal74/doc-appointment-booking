@@ -40,7 +40,7 @@ jobs:
     if: ${{ vars.DEPLOYMENT_URL != '' && always() && needs.deployment-verify.result == 'success' }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Run smoke test
         run: |

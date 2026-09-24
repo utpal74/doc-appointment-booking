@@ -42,7 +42,7 @@ function has(content, pattern) {
 // ─── requirements.md ─────────────────────────────────────────────────────────
 
 console.log('\n=== requirements.md ===');
-const req = read('requirements.md');
+const req = read('docs/requirements.md');
 
 check('requirements.md', 'File exists', req !== null);
 check('requirements.md', 'Has Overview section', has(req, '## 1. Overview'));
@@ -63,7 +63,7 @@ check('requirements.md', 'Cancellation and rescheduling specified (FR-06, FR-07)
 // ─── architecture.md ─────────────────────────────────────────────────────────
 
 console.log('\n=== architecture.md ===');
-const arch = read('architecture.md');
+const arch = read('docs/architecture.md');
 
 check('architecture.md', 'File exists', arch !== null);
 check('architecture.md', 'Has Architecture Pattern section', has(arch, '3-Tier'));
@@ -97,7 +97,7 @@ check('architecture.md', 'Lists all 9 required env vars', has(arch, 'PHONE_HMAC_
 // ─── design-review.md ────────────────────────────────────────────────────────
 
 console.log('\n=== design-review.md ===');
-const dr = read('design-review.md');
+const dr = read('docs/design-review.md');
 
 check('design-review.md', 'File exists', dr !== null);
 check('design-review.md', 'Has Review Scope section', has(dr, 'Review Scope'));
@@ -111,7 +111,7 @@ check('design-review.md', 'Sections accepted as-is documented', has(dr, 'Accepte
 // ─── impl-plan.md ────────────────────────────────────────────────────────────
 
 console.log('\n=== impl-plan.md ===');
-const plan = read('impl-plan.md');
+const plan = read('docs/impl-plan.md');
 
 check('impl-plan.md', 'File exists', plan !== null);
 check('impl-plan.md', 'Has Dependency Graph section', has(plan, 'Dependency Graph'));
@@ -127,7 +127,7 @@ check('impl-plan.md', 'Definition of Done section present', has(plan, 'Definitio
 // ─── code-review.md ──────────────────────────────────────────────────────────
 
 console.log('\n=== code-review.md ===');
-const cr = read('code-review.md');
+const cr = read('docs/code-review.md');
 
 check('code-review.md', 'File exists', cr !== null);
 check('code-review.md', 'Has Checklist Summary table', has(cr, 'Checklist Summary'));

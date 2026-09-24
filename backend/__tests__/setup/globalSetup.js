@@ -2,7 +2,6 @@ const { execSync } = require('child_process');
 const path = require('path');
 
 const TEST_DB_URL = 'postgresql://postgres:postgres@localhost:5432/appointments_test';
-const POSTGRES_URL = 'postgresql://postgres:postgres@localhost:5432/postgres';
 const ROOT = path.join(__dirname, '../../');
 
 const testEnv = {
@@ -21,6 +20,13 @@ function dockerPsql(sql) {
 }
 
 module.exports = async () => {
+  // In CI the workflow creates appointments_test, runs migrations, and seeds
+  // before npm test is invoked — nothing to do here.
+  if (process.env.CI) {
+    console.log('\n[test setup] CI environment — database already prepared by workflow.\n');
+    return;
+  }
+
   console.log('\n[test setup] Creating test database...');
   try { dockerPsql('DROP DATABASE IF EXISTS appointments_test WITH (FORCE)'); } catch (_) { /* older PG */ }
   try { dockerPsql('DROP DATABASE IF EXISTS appointments_test'); } catch (_) { /* ignore */ }

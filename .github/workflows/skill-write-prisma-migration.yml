@@ -1,0 +1,257 @@
+# Workflow: Skill: Write Prisma Migration
+# Invokes Claude (claude-sonnet-4-6) with the write-prisma-migration skill to
+# validate a schema change, then runs `prisma migrate dev`, reviews the
+# generated SQL for red flags, regenerates the Prisma client, and posts a
+# summary as a GitHub Actions job summary.
+
+name: "Skill: Write Prisma Migration"
+
+on:
+  workflow_dispatch:
+    inputs:
+      migration_name:
+        description: "Short snake_case label passed to --name in `prisma migrate dev` (e.g. add_notes_to_appointment)"
+        required: true
+        default: ""
+      schema_change_description:
+        description: "Free-text description of the schema change being made (used by Claude to validate and guide the migration)"
+        required: true
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  write-prisma-migration:
+    name: Write and Apply Prisma Migration
+    runs-on: ubuntu-latest
+
+    # PostgreSQL service container required for prisma migrate dev
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: appointments
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/appointments
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      # ------------------------------------------------------------------
+      # Step: Ask Claude to validate the proposed schema change and provide
+      # guidance before we touch the actual schema file.
+      # ------------------------------------------------------------------
+      - name: Invoke Claude — validate schema change and generate guidance
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          node -e "
+            const fs   = require('fs');
+            const https = require('https');
+
+            const skill = fs.readFileSync('.github/agents/skills/write-prisma-migration.md', 'utf8');
+
+            const userMessage = [
+              'Migration name (--name flag): ${{ inputs.migration_name }}',
+              '',
+              'Schema change description:',
+              '${{ inputs.schema_change_description }}',
+              '',
+              'Tasks:',
+              '1. Review the proposed schema change against the project constraints',
+              '   (encrypted phone columns, doctor_slot_unique index, previousAppointmentId self-reference).',
+              '2. Identify any red flags (DROP COLUMN on PII columns, NOT NULL without DEFAULT,',
+              '   removal of doctor_slot_unique).',
+              '3. Provide the exact edits needed in backend/prisma/schema.prisma.',
+              '4. List any backfill SQL that must be injected into the generated migration.',
+              '5. Summarise with a SAFE / UNSAFE / NEEDS-BACKFILL verdict.'
+            ].join('\n');
+
+            const body = JSON.stringify({
+              model: 'claude-sonnet-4-6',
+              max_tokens: 2048,
+              system: skill,
+              messages: [{ role: 'user', content: userMessage }]
+            });
+
+            const options = {
+              hostname: 'api.anthropic.com',
+              path: '/v1/messages',
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': process.env.ANTHROPIC_API_KEY,
+                'anthropic-version': '2023-06-01',
+                'Content-Length': Buffer.byteLength(body)
+              }
+            };
+
+            const req = https.request(options, (res) => {
+              let data = '';
+              res.on('data', chunk => data += chunk);
+              res.on('end', () => {
+                const parsed = JSON.parse(data);
+                if (parsed.error) {
+                  console.error('Anthropic API error:', JSON.stringify(parsed.error));
+                  process.exit(1);
+                }
+                const text = parsed.content?.[0]?.text ?? '(no response)';
+                fs.writeFileSync('/tmp/agent-output.txt', text);
+                console.log('Claude guidance written to /tmp/agent-output.txt');
+              });
+            });
+
+            req.on('error', (e) => { console.error(e); process.exit(1); });
+            req.write(body);
+            req.end();
+          "
+
+      - name: Post Claude guidance to job summary
+        run: |
+          echo "## Claude Migration Guidance" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Migration name:** \`${{ inputs.migration_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Schema change description:**" >> $GITHUB_STEP_SUMMARY
+          echo "${{ inputs.schema_change_description }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Claude Analysis" >> $GITHUB_STEP_SUMMARY
+          cat /tmp/agent-output.txt >> $GITHUB_STEP_SUMMARY
+
+      # ------------------------------------------------------------------
+      # Safety gate: abort if Claude flagged the migration as UNSAFE
+      # ------------------------------------------------------------------
+      - name: Abort if Claude verdict is UNSAFE
+        run: |
+          if grep -qi "UNSAFE" /tmp/agent-output.txt; then
+            echo "::error::Claude flagged this migration as UNSAFE. Review the job summary for details."
+            exit 1
+          fi
+          echo "Safety check passed — proceeding with migration."
+
+      # ------------------------------------------------------------------
+      # Run prisma migrate dev against the service-container database.
+      # This generates the SQL migration file and applies it.
+      # ------------------------------------------------------------------
+      - name: Run prisma migrate dev
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+        run: |
+          npx prisma migrate dev --name "${{ inputs.migration_name }}" --skip-seed
+
+      # ------------------------------------------------------------------
+      # Find and review the freshly generated migration SQL for red flags.
+      # ------------------------------------------------------------------
+      - name: Review generated migration SQL
+        working-directory: backend
+        run: |
+          # Locate the most-recently created migration directory
+          MIGRATION_DIR=$(ls -dt prisma/migrations/*/  | grep -v baseline | head -n 1)
+          MIGRATION_SQL="${MIGRATION_DIR}migration.sql"
+
+          echo "Migration directory: $MIGRATION_DIR"
+          echo "Migration SQL file:  $MIGRATION_SQL"
+
+          if [ ! -f "$MIGRATION_SQL" ]; then
+            echo "::warning::No migration.sql found at expected path. Check prisma migrate dev output above."
+            exit 0
+          fi
+
+          echo "--- migration.sql ---"
+          cat "$MIGRATION_SQL"
+          echo "--- end ---"
+
+          # Persist path for the next step
+          echo "MIGRATION_SQL=$MIGRATION_SQL" >> $GITHUB_ENV
+
+          # Check for red flags
+          WARNINGS=""
+
+          if grep -qi "DROP COLUMN.*patient_phone" "$MIGRATION_SQL"; then
+            WARNINGS="${WARNINGS}\n- **DANGER**: DROP COLUMN on patient_phone or patient_phone_hash detected. These hold encrypted/hashed PII and cannot be recovered."
+          fi
+
+          if grep -qi "SET NOT NULL" "$MIGRATION_SQL" && ! grep -qi "DEFAULT\|UPDATE.*SET" "$MIGRATION_SQL"; then
+            WARNINGS="${WARNINGS}\n- **WARNING**: SET NOT NULL without a DEFAULT or backfill detected. This will fail on non-empty tables."
+          fi
+
+          if grep -qi "DROP INDEX.*doctor_slot_unique\|DROP CONSTRAINT.*doctor_slot_unique" "$MIGRATION_SQL"; then
+            WARNINGS="${WARNINGS}\n- **DANGER**: Removal of doctor_slot_unique index detected. This breaks the double-booking guarantee."
+          fi
+
+          # Persist warnings for summary
+          echo "MIGRATION_WARNINGS<<EOF" >> $GITHUB_ENV
+          echo -e "$WARNINGS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+          if [ -n "$WARNINGS" ]; then
+            echo "::warning::Red flags detected in migration SQL — see job summary."
+          else
+            echo "No red flags detected in migration SQL."
+          fi
+
+      # ------------------------------------------------------------------
+      # Regenerate Prisma client so typings reflect the new schema.
+      # ------------------------------------------------------------------
+      - name: Regenerate Prisma client
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+        run: npx prisma generate
+
+      # ------------------------------------------------------------------
+      # Post migration SQL and any warnings to the job summary.
+      # ------------------------------------------------------------------
+      - name: Post migration SQL and warnings to job summary
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "## Migration SQL" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f "${{ env.MIGRATION_SQL }}" ]; then
+            echo "\`\`\`sql" >> $GITHUB_STEP_SUMMARY
+            cat "${{ env.MIGRATION_SQL }}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "_Migration SQL file not found — migration may not have produced changes._" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Red-Flag Checks" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -n "${{ env.MIGRATION_WARNINGS }}" ]; then
+            echo "${{ env.MIGRATION_WARNINGS }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "::warning::One or more red flags were detected. Review the summary before merging."
+          else
+            echo "No red flags detected. Migration looks safe to commit." >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "_Prisma client regenerated. Commit the new migration file and updated \`prisma/client\` to version control._" >> $GITHUB_STEP_SUMMARY

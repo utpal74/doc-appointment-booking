@@ -1,0 +1,381 @@
+# Workflow: Skill — Debug SMS Delivery
+# Diagnoses SMS delivery failures by walking through every failure point in the
+# Twilio/NotificationService stack.  Claude reads the debug-sms skill file and
+# runs SQL / bash diagnostics, then posts a structured triage summary.
+
+name: "Skill: Debug SMS Delivery"
+
+on:
+  workflow_dispatch:
+    inputs:
+      sms_log_id:
+        description: "Optional SmsLog UUID to focus the triage on a specific failed record (leave blank to triage the 20 most recent PENDING/FAILED entries)"
+        required: false
+        default: ""
+      appointment_id:
+        description: "Optional Appointment UUID to trace SMS delivery for a specific booking"
+        required: false
+        default: ""
+      environment:
+        description: "Target environment to debug (e.g. production, staging, local)"
+        required: false
+        default: "production"
+
+permissions:
+  contents: read
+
+jobs:
+  debug-sms:
+    name: Debug SMS Delivery
+    runs-on: ubuntu-latest
+
+    # -----------------------------------------------------------------------
+    # PostgreSQL service container (needs_db = true)
+    # Used for SQL diagnostics executed by the Node helper script below.
+    # In production/staging you would point DATABASE_URL at the real DB via
+    # a repository secret instead of relying on this service container.
+    # -----------------------------------------------------------------------
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: appointments
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # Fall back to the local service container when DATABASE_URL is not
+      # injected via secrets (e.g. during testing of the workflow itself).
+      DATABASE_URL: ${{ secrets.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/appointments' }}
+      TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+      TWILIO_AUTH_TOKEN:  ${{ secrets.TWILIO_AUTH_TOKEN }}
+      TWILIO_PHONE_NUMBER: ${{ secrets.TWILIO_PHONE_NUMBER }}
+      PHONE_ENCRYPTION_KEY: ${{ secrets.PHONE_ENCRYPTION_KEY }}
+      ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Checkout repository so we can read the skill file and backend code
+      # -----------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # 2. Set up Node.js 20 (matches the project runtime)
+      # -----------------------------------------------------------------------
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # -----------------------------------------------------------------------
+      # 3. Install minimal dependencies needed by the diagnostic helper
+      #    (pg for raw SQL queries, node-fetch is built-in via https module)
+      # -----------------------------------------------------------------------
+      - name: Install diagnostic dependencies
+        run: npm install pg
+
+      # -----------------------------------------------------------------------
+      # 4. Run pre-Claude diagnostic checks (bash + SQL)
+      #    These gather raw facts before Claude does its analysis.
+      # -----------------------------------------------------------------------
+      - name: Gather diagnostic data
+        id: diagnostics
+        run: |
+          echo "=== Diagnostic Run ===" | tee /tmp/diag-output.txt
+
+          # --- Failure Point 1: Twilio credential presence ---
+          echo "" >> /tmp/diag-output.txt
+          echo "### Failure Point 1 — Twilio credentials" >> /tmp/diag-output.txt
+
+          if [[ "${TWILIO_ACCOUNT_SID:-}" == AC* && ${#TWILIO_ACCOUNT_SID} -eq 34 ]]; then
+            echo "TWILIO_ACCOUNT_SID: PRESENT (starts with AC, length 34)" >> /tmp/diag-output.txt
+          else
+            echo "TWILIO_ACCOUNT_SID: MISSING or MALFORMED (got: '${TWILIO_ACCOUNT_SID:0:4}...', length ${#TWILIO_ACCOUNT_SID})" >> /tmp/diag-output.txt
+          fi
+
+          if [[ -n "${TWILIO_AUTH_TOKEN:-}" && ${#TWILIO_AUTH_TOKEN} -eq 32 ]]; then
+            echo "TWILIO_AUTH_TOKEN: PRESENT (length 32)" >> /tmp/diag-output.txt
+          else
+            echo "TWILIO_AUTH_TOKEN: MISSING or WRONG LENGTH (length ${#TWILIO_AUTH_TOKEN})" >> /tmp/diag-output.txt
+          fi
+
+          if [[ "${TWILIO_PHONE_NUMBER:-}" == +* ]]; then
+            echo "TWILIO_PHONE_NUMBER: PRESENT (E.164 format detected)" >> /tmp/diag-output.txt
+          else
+            echo "TWILIO_PHONE_NUMBER: MISSING or NOT E.164 (value: '${TWILIO_PHONE_NUMBER:-<empty>}')" >> /tmp/diag-output.txt
+          fi
+
+          # --- Failure Point 3: PHONE_ENCRYPTION_KEY length ---
+          echo "" >> /tmp/diag-output.txt
+          echo "### Failure Point 3 — PHONE_ENCRYPTION_KEY" >> /tmp/diag-output.txt
+          KEY_LEN=${#PHONE_ENCRYPTION_KEY}
+          if [[ $KEY_LEN -eq 64 ]]; then
+            echo "PHONE_ENCRYPTION_KEY: PRESENT (length 64 hex chars — correct)" >> /tmp/diag-output.txt
+          else
+            echo "PHONE_ENCRYPTION_KEY: SUSPECT (length $KEY_LEN, expected 64)" >> /tmp/diag-output.txt
+          fi
+
+          # --- Failure Point 4: Twilio API reachability ---
+          echo "" >> /tmp/diag-output.txt
+          echo "### Failure Point 4 — Twilio API reachability" >> /tmp/diag-output.txt
+          if [[ -n "${TWILIO_ACCOUNT_SID:-}" && -n "${TWILIO_AUTH_TOKEN:-}" ]]; then
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              "https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}.json" \
+              -u "${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}" \
+              --max-time 10 || echo "000")
+            echo "Twilio API HTTP response code: $HTTP_CODE" >> /tmp/diag-output.txt
+            if [[ "$HTTP_CODE" == "200" ]]; then
+              echo "Twilio reachability: OK" >> /tmp/diag-output.txt
+            elif [[ "$HTTP_CODE" == "401" ]]; then
+              echo "Twilio reachability: AUTH FAILURE (wrong credentials)" >> /tmp/diag-output.txt
+            else
+              echo "Twilio reachability: FAILED (code $HTTP_CODE — network blocked or Twilio outage)" >> /tmp/diag-output.txt
+            fi
+          else
+            echo "Twilio reachability: SKIPPED (credentials not set)" >> /tmp/diag-output.txt
+          fi
+
+          echo "Diagnostic bash checks complete." >> /tmp/diag-output.txt
+        shell: bash
+
+      # -----------------------------------------------------------------------
+      # 5. Run SQL-based diagnostics via Node (Failure Points 2 and 5)
+      # -----------------------------------------------------------------------
+      - name: Run SQL diagnostics
+        id: sql-diagnostics
+        run: |
+          node - <<'NODEEOF'
+          const { Client } = require('pg');
+          const fs = require('fs');
+
+          const smsLogId    = process.env.SMS_LOG_ID    || '';
+          const appointmentId = process.env.APPOINTMENT_ID || '';
+
+          async function main() {
+            const client = new Client({ connectionString: process.env.DATABASE_URL });
+            let output = '';
+
+            try {
+              await client.connect();
+
+              // Failure Point 2 — SmsTemplate rows
+              output += '\n### Failure Point 2 — SmsTemplate rows\n';
+              try {
+                const tplRes = await client.query(
+                  `SELECT "messageType", LEFT("templateBody", 60) AS preview FROM "SmsTemplate"`
+                );
+                if (tplRes.rows.length === 0) {
+                  output += 'SmsTemplate: EMPTY — seed data is missing!\n';
+                } else {
+                  const types = tplRes.rows.map(r => r.messageType);
+                  for (const required of ['BOOKING', 'CANCELLATION', 'RESCHEDULING']) {
+                    output += `  ${required}: ${types.includes(required) ? 'PRESENT' : 'MISSING'}\n`;
+                  }
+                  output += 'SmsTemplate rows:\n';
+                  tplRes.rows.forEach(r => {
+                    output += `  ${r.messageType}: "${r.preview}..."\n`;
+                  });
+                }
+              } catch (e) {
+                output += `SmsTemplate query failed: ${e.message}\n`;
+              }
+
+              // Failure Point 5 — SmsLog stuck entries
+              output += '\n### Failure Point 5 — Stuck SmsLog entries\n';
+              try {
+                let logQuery;
+                let logParams = [];
+
+                if (smsLogId) {
+                  logQuery = `
+                    SELECT id, "appointmentId", "messageType", status, "attemptCount", "createdAt"
+                    FROM "SmsLog"
+                    WHERE id = $1`;
+                  logParams = [smsLogId];
+                } else if (appointmentId) {
+                  logQuery = `
+                    SELECT id, "appointmentId", "messageType", status, "attemptCount", "createdAt"
+                    FROM "SmsLog"
+                    WHERE "appointmentId" = $1
+                    ORDER BY "createdAt" DESC`;
+                  logParams = [appointmentId];
+                } else {
+                  logQuery = `
+                    SELECT id, "appointmentId", "messageType", status, "attemptCount", "createdAt"
+                    FROM "SmsLog"
+                    WHERE status IN ('PENDING', 'FAILED')
+                    ORDER BY "createdAt" DESC
+                    LIMIT 20`;
+                }
+
+                const logRes = await client.query(logQuery, logParams);
+                if (logRes.rows.length === 0) {
+                  output += 'No PENDING/FAILED SmsLog entries found.\n';
+                } else {
+                  output += `Found ${logRes.rows.length} entries:\n`;
+                  logRes.rows.forEach(r => {
+                    output += `  id=${r.id} type=${r.messageType} status=${r.status} attempts=${r.attemptCount} created=${r.createdAt}\n`;
+                    if (r.attemptCount >= 3) {
+                      output += `    *** PERMANENTLY FAILED (attemptCount >= 3) — manual reset required ***\n`;
+                    }
+                  });
+                }
+              } catch (e) {
+                output += `SmsLog query failed: ${e.message}\n`;
+              }
+
+            } catch (connErr) {
+              output += `\nDatabase connection failed: ${connErr.message}\n`;
+              output += 'SQL diagnostics skipped — check DATABASE_URL secret.\n';
+            } finally {
+              await client.end().catch(() => {});
+            }
+
+            fs.appendFileSync('/tmp/diag-output.txt', output);
+            console.log('SQL diagnostics written to /tmp/diag-output.txt');
+          }
+
+          main().catch(e => {
+            require('fs').appendFileSync('/tmp/diag-output.txt', `\nSQL diagnostic script error: ${e.message}\n`);
+            process.exit(0); // non-fatal — let Claude still analyse what we have
+          });
+          NODEEOF
+        env:
+          SMS_LOG_ID:     ${{ inputs.sms_log_id }}
+          APPOINTMENT_ID: ${{ inputs.appointment_id }}
+
+      # -----------------------------------------------------------------------
+      # 6. Invoke Claude via the Anthropic Messages API
+      #    - Reads the debug-sms.md skill as the system prompt
+      #    - Sends workflow inputs + diagnostic output as the user message
+      #    - Writes the triage summary to /tmp/agent-output.txt
+      # -----------------------------------------------------------------------
+      - name: Invoke Claude — SMS triage analysis
+        run: |
+          node - <<'NODEEOF'
+          const fs   = require('fs');
+          const https = require('https');
+
+          const skillPath = '.github/agents/skills/debug-sms.md';
+          const skill = fs.readFileSync(skillPath, 'utf8');
+          const diagData = fs.existsSync('/tmp/diag-output.txt')
+            ? fs.readFileSync('/tmp/diag-output.txt', 'utf8')
+            : '(no diagnostic data collected)';
+
+          const smsLogId     = process.env.SMS_LOG_ID     || '(not specified)';
+          const appointmentId = process.env.APPOINTMENT_ID || '(not specified)';
+          const environment  = process.env.TARGET_ENV     || 'production';
+
+          const userMessage = [
+            `## SMS Triage Request`,
+            ``,
+            `**Environment:** ${environment}`,
+            `**SmsLog ID filter:** ${smsLogId}`,
+            `**Appointment ID filter:** ${appointmentId}`,
+            ``,
+            `## Diagnostic Data Collected`,
+            ``,
+            diagData,
+            ``,
+            `## Instructions`,
+            `Using the diagnostic data above, walk through all six SMS failure points in order.`,
+            `Identify the root cause(s) and produce a structured triage summary with:`,
+            `1. Which failure point(s) are triggered`,
+            `2. The recommended fix for each`,
+            `3. Any SQL statements needed to remediate stuck SmsLog rows`,
+            `4. A quick-checklist of items still to verify manually`,
+          ].join('\n');
+
+          const body = JSON.stringify({
+            model: 'claude-sonnet-4-6',
+            max_tokens: 2048,
+            system: skill,
+            messages: [{ role: 'user', content: userMessage }],
+          });
+
+          const options = {
+            hostname: 'api.anthropic.com',
+            path: '/v1/messages',
+            method: 'POST',
+            headers: {
+              'Content-Type':      'application/json',
+              'x-api-key':         process.env.ANTHROPIC_API_KEY,
+              'anthropic-version': '2023-06-01',
+              'Content-Length':    Buffer.byteLength(body),
+            },
+          };
+
+          const req = https.request(options, (res) => {
+            let raw = '';
+            res.on('data', chunk => raw += chunk);
+            res.on('end', () => {
+              try {
+                const parsed = JSON.parse(raw);
+                if (parsed.error) {
+                  console.error('Anthropic API error:', parsed.error.message);
+                  fs.writeFileSync('/tmp/agent-output.txt',
+                    `## Claude Triage — API Error\n\n${parsed.error.message}\n`);
+                  process.exit(1);
+                }
+                const text = (parsed.content || [])
+                  .filter(b => b.type === 'text')
+                  .map(b => b.text)
+                  .join('\n');
+                fs.writeFileSync('/tmp/agent-output.txt', text);
+                console.log('Claude triage written to /tmp/agent-output.txt');
+              } catch (e) {
+                console.error('Failed to parse Anthropic response:', e.message);
+                fs.writeFileSync('/tmp/agent-output.txt',
+                  `## Claude Triage — Parse Error\n\n${e.message}\n\nRaw response:\n${raw}\n`);
+                process.exit(1);
+              }
+            });
+          });
+
+          req.on('error', (e) => {
+            console.error('Request failed:', e.message);
+            fs.writeFileSync('/tmp/agent-output.txt',
+              `## Claude Triage — Network Error\n\n${e.message}\n`);
+            process.exit(1);
+          });
+
+          req.write(body);
+          req.end();
+          NODEEOF
+        env:
+          SMS_LOG_ID:     ${{ inputs.sms_log_id }}
+          APPOINTMENT_ID: ${{ inputs.appointment_id }}
+          TARGET_ENV:     ${{ inputs.environment }}
+
+      # -----------------------------------------------------------------------
+      # 7. Post the triage summary to the GitHub Actions job summary
+      # -----------------------------------------------------------------------
+      - name: Post triage summary
+        run: |
+          echo "## SMS Delivery Triage — ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ -n "${{ inputs.sms_log_id }}" ]]; then
+            echo "**SmsLog ID:** \`${{ inputs.sms_log_id }}\`" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [[ -n "${{ inputs.appointment_id }}" ]]; then
+            echo "**Appointment ID:** \`${{ inputs.appointment_id }}\`" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Diagnostic Data" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat /tmp/diag-output.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Claude Triage Analysis" >> $GITHUB_STEP_SUMMARY
+          cat /tmp/agent-output.txt >> $GITHUB_STEP_SUMMARY
+        shell: bash

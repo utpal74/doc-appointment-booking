@@ -1,0 +1,151 @@
+# Skill: Scaffold Endpoint
+# Generates the four backend layers (schema, service, route, tests) for a new REST endpoint.
+# Triggered manually via workflow_dispatch with resource, action, method, and auth inputs.
+
+name: "Skill: Scaffold Endpoint"
+
+on:
+  workflow_dispatch:
+    inputs:
+      resource:
+        description: "Plural noun for the route (e.g. reports, doctors)"
+        required: true
+        default: ""
+      action:
+        description: "Verb describing the operation (e.g. list, create, cancel)"
+        required: true
+        default: ""
+      method:
+        description: "HTTP verb: GET | POST | PATCH | DELETE"
+        required: true
+        default: "GET"
+      auth:
+        description: "Whether the route requires the authenticate middleware (yes/no)"
+        required: false
+        default: "no"
+
+permissions:
+  contents: read
+
+jobs:
+  scaffold-endpoint:
+    name: Scaffold API Endpoint via Claude
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # Read the skill file and invoke the Anthropic Messages API with it as the system prompt.
+      # Inputs are forwarded as the user message so Claude knows exactly what to generate.
+      - name: Invoke Claude to scaffold endpoint
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          INPUT_RESOURCE: ${{ github.event.inputs.resource }}
+          INPUT_ACTION: ${{ github.event.inputs.action }}
+          INPUT_METHOD: ${{ github.event.inputs.method }}
+          INPUT_AUTH: ${{ github.event.inputs.auth }}
+        run: |
+          node -e "
+            const fs   = require('fs');
+            const https = require('https');
+
+            // Load the skill definition as the system prompt
+            const skill = fs.readFileSync('.github/agents/skills/scaffold-endpoint.md', 'utf8');
+
+            // Build a clear user message from workflow inputs
+            const userMessage = [
+              'Scaffold a new REST endpoint using the following inputs:',
+              '',
+              'RESOURCE : ' + process.env.INPUT_RESOURCE,
+              'ACTION   : ' + process.env.INPUT_ACTION,
+              'METHOD   : ' + process.env.INPUT_METHOD,
+              'AUTH     : ' + process.env.INPUT_AUTH,
+              '',
+              'Follow every convention described in the skill file.',
+              'For each file you create or modify, output the FULL file content in a fenced code block',
+              'prefixed with the relative path as a comment, e.g.:',
+              '',
+              '// backend/src/schemas/index.js',
+              '\`\`\`js',
+              '// ... full file contents ...',
+              '\`\`\`',
+              '',
+              'Produce all four layers: schema, service, route, and integration test.',
+            ].join('\n');
+
+            const payload = JSON.stringify({
+              model: 'claude-sonnet-4-6',
+              max_tokens: 2048,
+              system: skill,
+              messages: [{ role: 'user', content: userMessage }]
+            });
+
+            const options = {
+              hostname: 'api.anthropic.com',
+              path: '/v1/messages',
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': process.env.ANTHROPIC_API_KEY,
+                'anthropic-version': '2023-06-01',
+                'Content-Length': Buffer.byteLength(payload)
+              }
+            };
+
+            const req = https.request(options, (res) => {
+              let body = '';
+              res.on('data', chunk => body += chunk);
+              res.on('end', () => {
+                if (res.statusCode !== 200) {
+                  console.error('Anthropic API error ' + res.statusCode + ':', body);
+                  process.exit(1);
+                }
+                const json = JSON.parse(body);
+                const output = json.content[0].text;
+                fs.writeFileSync('/tmp/agent-output.txt', output, 'utf8');
+                console.log('Claude response written to /tmp/agent-output.txt');
+              });
+            });
+
+            req.on('error', (err) => {
+              console.error('Request failed:', err.message);
+              process.exit(1);
+            });
+
+            req.write(payload);
+            req.end();
+          "
+
+      # Post the generated scaffold as a readable job summary so reviewers
+      # can inspect exactly which files Claude created or modified.
+      - name: Post job summary
+        run: |
+          echo "## Scaffold Endpoint — Generated Output" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Inputs**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Input | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| resource | \`${{ github.event.inputs.resource }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| action   | \`${{ github.event.inputs.action }}\`   |" >> $GITHUB_STEP_SUMMARY
+          echo "| method   | \`${{ github.event.inputs.method }}\`   |" >> $GITHUB_STEP_SUMMARY
+          echo "| auth     | \`${{ github.event.inputs.auth }}\`     |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Files Created / Modified**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. \`backend/src/schemas/index.js\` — new Zod schema added"                                   >> $GITHUB_STEP_SUMMARY
+          echo "2. \`backend/src/services/${{ github.event.inputs.resource }}Service.js\` — service method added" >> $GITHUB_STEP_SUMMARY
+          echo "3. \`backend/src/routes/${{ github.event.inputs.resource }}.js\` — route handler added"       >> $GITHUB_STEP_SUMMARY
+          echo "4. \`backend/__tests__/integration/${{ github.event.inputs.resource }}.test.js\` — tests added" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Claude Output" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cat /tmp/agent-output.txt >> $GITHUB_STEP_SUMMARY

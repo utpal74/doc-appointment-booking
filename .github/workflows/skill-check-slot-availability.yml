@@ -1,0 +1,246 @@
+# Skill: Check Slot Availability
+# Runs on a weekly schedule (Monday 6am UTC) and on demand via workflow_dispatch.
+# Connects to PostgreSQL and executes slot-availability diagnostics defined in
+# .github/agents/skills/check-slot-availability.md — no Claude API call required.
+
+name: "Skill: Check Slot Availability"
+
+on:
+  schedule:
+    # Every Monday at 06:00 UTC
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      doctor_id:
+        description: "UUID of the doctor to scope the availability check. Leave blank to report across all doctors."
+        required: false
+        default: ""
+      appointment_date:
+        description: "Date to check in YYYY-MM-DD format. Defaults to today."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  check-slot-availability:
+    name: Check Slot Availability
+    runs-on: ubuntu-latest
+
+    # -------------------------------------------------------------------------
+    # PostgreSQL service container (needed for needs_db=true)
+    # In production this job talks to the real DATABASE_URL secret; the service
+    # container below is only used when DATABASE_URL is not provided (e.g. forks
+    # or test runs without access to secrets).
+    # -------------------------------------------------------------------------
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: appointments
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # Use the repo secret when available; fall back to the local service container.
+      DATABASE_URL: ${{ secrets.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/appointments' }}
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Checkout — needed to access Prisma schema and backend source
+      # -----------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # 2. Set up Node.js 20
+      # -----------------------------------------------------------------------
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      # -----------------------------------------------------------------------
+      # 3. Install backend dependencies (includes Prisma CLI)
+      # -----------------------------------------------------------------------
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      # -----------------------------------------------------------------------
+      # 4. Resolve inputs
+      #    - doctor_id  : use dispatch input, or empty string (all doctors)
+      #    - target_date: use dispatch input, or today's date (YYYY-MM-DD)
+      # -----------------------------------------------------------------------
+      - name: Resolve inputs
+        id: inputs
+        run: |
+          DOCTOR_ID="${{ github.event.inputs.doctor_id }}"
+          APPOINTMENT_DATE="${{ github.event.inputs.appointment_date }}"
+
+          # Default date to today if not supplied
+          if [ -z "$APPOINTMENT_DATE" ]; then
+            APPOINTMENT_DATE=$(date -u +%Y-%m-%d)
+          fi
+
+          echo "doctor_id=$DOCTOR_ID"           >> "$GITHUB_OUTPUT"
+          echo "appointment_date=$APPOINTMENT_DATE" >> "$GITHUB_OUTPUT"
+
+          echo "Resolved doctor_id    : ${DOCTOR_ID:-<all doctors>}"
+          echo "Resolved appointment_date: $APPOINTMENT_DATE"
+
+      # -----------------------------------------------------------------------
+      # 5. Run slot-availability diagnostics via Node.js / Prisma
+      #
+      #    Implements the SQL queries from check-slot-availability.md directly:
+      #      a) Count booked slots per doctor for the target date (all doctors)
+      #      b) List free slots for the given doctor_id (if provided)
+      #      c) Verify the doctor_slot_unique index exists
+      # -----------------------------------------------------------------------
+      - name: Run slot-availability diagnostics
+        id: diagnostics
+        working-directory: backend
+        env:
+          DOCTOR_ID: ${{ steps.inputs.outputs.doctor_id }}
+          APPOINTMENT_DATE: ${{ steps.inputs.outputs.appointment_date }}
+        run: |
+          node - <<'EOF'
+          const { PrismaClient } = require('@prisma/client');
+          const prisma = new PrismaClient();
+
+          const VALID_SLOTS = [
+            '09:00','09:30','10:00','10:30','11:00','11:30',
+            '14:00','14:30','15:00','15:30','16:00','16:30',
+          ];
+
+          async function main() {
+            const doctorId     = process.env.DOCTOR_ID     || null;
+            const targetDate   = process.env.APPOINTMENT_DATE;
+            const dateObj      = new Date(targetDate + 'T00:00:00.000Z');
+
+            const lines = [];
+            lines.push('=== Slot Availability Report ===');
+            lines.push(`Date scope : ${targetDate}`);
+            lines.push(`Doctor scope: ${doctorId || '<all doctors>'}`);
+            lines.push('');
+
+            // -----------------------------------------------------------------
+            // a) Booked-slot count per doctor for the target date
+            // -----------------------------------------------------------------
+            lines.push('--- Booked slots per doctor ---');
+            const booked = await prisma.appointment.groupBy({
+              by: ['doctorId'],
+              where: {
+                appointmentDate: dateObj,
+                status: 'CONFIRMED',
+                ...(doctorId ? { doctorId } : {}),
+              },
+              _count: { slotTime: true },
+              orderBy: { _count: { slotTime: 'desc' } },
+            });
+
+            if (booked.length === 0) {
+              lines.push('  No confirmed appointments found for this date.');
+            } else {
+              // Fetch doctor names for display
+              const doctorIds = booked.map(r => r.doctorId);
+              const doctors   = await prisma.doctor.findMany({
+                where: { id: { in: doctorIds } },
+                select: { id: true, name: true },
+              });
+              const nameMap = Object.fromEntries(doctors.map(d => [d.id, d.name]));
+
+              for (const row of booked) {
+                const name = nameMap[row.doctorId] || row.doctorId;
+                lines.push(`  ${name}: ${row._count.slotTime} / ${VALID_SLOTS.length} slots booked`);
+              }
+            }
+            lines.push('');
+
+            // -----------------------------------------------------------------
+            // b) Free slots for the specified doctor (only when doctor_id given)
+            // -----------------------------------------------------------------
+            if (doctorId) {
+              lines.push(`--- Free slots for doctor ${doctorId} on ${targetDate} ---`);
+              const takenRows = await prisma.appointment.findMany({
+                where: {
+                  doctorId,
+                  appointmentDate: dateObj,
+                  status: 'CONFIRMED',
+                },
+                select: { slotTime: true },
+              });
+              const takenSet  = new Set(takenRows.map(r => r.slotTime));
+              const freeSlots = VALID_SLOTS.filter(s => !takenSet.has(s));
+
+              if (freeSlots.length === 0) {
+                lines.push('  All slots are fully booked.');
+              } else {
+                lines.push(`  Free (${freeSlots.length}): ${freeSlots.join(', ')}`);
+              }
+              lines.push('');
+            }
+
+            // -----------------------------------------------------------------
+            // c) Verify doctor_slot_unique index exists (race-condition guard)
+            // -----------------------------------------------------------------
+            lines.push('--- Index check: doctor_slot_unique ---');
+            const indexRows = await prisma.$queryRaw`
+              SELECT indexname, indexdef
+              FROM pg_indexes
+              WHERE tablename = 'Appointment'
+                AND indexname = 'doctor_slot_unique'
+            `;
+
+            if (indexRows.length > 0) {
+              lines.push('  [OK] doctor_slot_unique index is present.');
+              lines.push(`  Definition: ${indexRows[0].indexdef}`);
+            } else {
+              lines.push('  [WARNING] doctor_slot_unique index is MISSING.');
+              lines.push('  Run: cd backend && npx prisma migrate deploy');
+              lines.push('  Without this index, concurrent bookings can double-book!');
+            }
+            lines.push('');
+            lines.push('=== End of Report ===');
+
+            const report = lines.join('\n');
+            console.log(report);
+
+            // Write to a temp file so the summary step can pick it up
+            require('fs').writeFileSync('/tmp/slot-report.txt', report);
+          }
+
+          main()
+            .catch(err => {
+              console.error('Diagnostic failed:', err.message);
+              require('fs').writeFileSync('/tmp/slot-report.txt', 'ERROR: ' + err.message);
+              process.exit(1);
+            })
+            .finally(() => prisma.$disconnect());
+          EOF
+
+      # -----------------------------------------------------------------------
+      # 6. Post results to the GitHub Actions job summary
+      # -----------------------------------------------------------------------
+      - name: Post summary
+        if: always()
+        run: |
+          {
+            echo "## Slot Availability Report"
+            echo ""
+            echo "**Date:** ${{ steps.inputs.outputs.appointment_date }}"
+            echo "**Doctor scope:** ${{ steps.inputs.outputs.doctor_id || 'all doctors' }}"
+            echo ""
+            echo '```'
+            cat /tmp/slot-report.txt 2>/dev/null || echo "No report generated."
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

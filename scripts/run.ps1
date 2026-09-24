@@ -33,7 +33,7 @@ param(
     [switch]$Test
 )
 
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 $Root       = $PSScriptRoot
@@ -151,7 +151,6 @@ function Test-Prerequisites {
     try {
         $null = docker info 2>&1
         if ($LASTEXITCODE -ne 0) { throw 'Docker daemon not running' }
-        # Get version safely without complex subexpression
         $dockerRaw = docker --version 2>&1
         Write-Success "Docker $dockerRaw"
     } catch {

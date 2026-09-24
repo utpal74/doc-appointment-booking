@@ -1,0 +1,251 @@
+name: "Skill: Add Department"
+
+on:
+  workflow_dispatch:
+    inputs:
+      department_name:
+        description: "Name of the new department to add (e.g. Neurology, Paediatrics)"
+        required: true
+        default: ""
+      doctor_names:
+        description: "Comma-separated list of doctor names to seed into the new department (e.g. 'Dr. A Sharma, Dr. B Patel')"
+        required: false
+        default: "Dr. TBD One, Dr. TBD Two"
+      run_tests:
+        description: "Whether to run the full backend test suite after seeding (true/false)"
+        required: false
+        default: "true"
+
+permissions:
+  contents: read
+
+jobs:
+  add-department:
+    name: Add Department via Claude Agent
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: appointments
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/appointments' }}
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Checkout repository
+      # -----------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # 2. Set up Node.js 20
+      # -----------------------------------------------------------------------
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      # -----------------------------------------------------------------------
+      # 3. Install backend dependencies
+      # -----------------------------------------------------------------------
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      # -----------------------------------------------------------------------
+      # 4. Call Claude (Anthropic API) with the add-department skill
+      #    - Reads the skill file as the system prompt
+      #    - Sends workflow inputs as the user message
+      #    - Claude edits backend/prisma/seed.js and backend/__tests__/setup/testEnv.js
+      #    - Response written to /tmp/agent-output.txt and posted to job summary
+      # -----------------------------------------------------------------------
+      - name: Invoke Claude agent to update seed and test fixtures
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          node -e "
+            const fs   = require('fs');
+            const https = require('https');
+
+            // Read the skill file as the system prompt
+            const skill = fs.readFileSync('.github/agents/skills/add-department.md', 'utf8');
+
+            // Build a concise user message from the workflow inputs
+            const userMessage = [
+              'Please update the codebase to add the following new department.',
+              '',
+              'Department name : ${{ inputs.department_name }}',
+              'Doctors to seed : ${{ inputs.doctor_names }}',
+              '',
+              'Follow every step in the skill instructions:',
+              '  1. Update backend/prisma/seed.js using the upsert/createMany pattern.',
+              '  2. Update backend/__tests__/setup/testEnv.js (or the equivalent test',
+              '     fixture file) so integration tests reference the new department.',
+              '  3. Do NOT create a Prisma migration — the models use plain string names.',
+              '',
+              'Return a short summary of every file you changed and the exact code blocks',
+              'you added or modified.',
+            ].join('\n');
+
+            const payload = JSON.stringify({
+              model: 'claude-sonnet-4-6',
+              max_tokens: 2048,
+              system: skill,
+              messages: [{ role: 'user', content: userMessage }],
+            });
+
+            const options = {
+              hostname: 'api.anthropic.com',
+              path: '/v1/messages',
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': process.env.ANTHROPIC_API_KEY,
+                'anthropic-version': '2023-06-01',
+                'Content-Length': Buffer.byteLength(payload),
+              },
+            };
+
+            const req = https.request(options, (res) => {
+              let body = '';
+              res.on('data', (chunk) => { body += chunk; });
+              res.on('end', () => {
+                try {
+                  const parsed = JSON.parse(body);
+                  if (parsed.error) {
+                    console.error('Anthropic API error:', JSON.stringify(parsed.error, null, 2));
+                    process.exit(1);
+                  }
+                  const text = (parsed.content || [])
+                    .filter(b => b.type === 'text')
+                    .map(b => b.text)
+                    .join('\n');
+                  fs.writeFileSync('/tmp/agent-output.txt', text);
+                  console.log('Claude response written to /tmp/agent-output.txt');
+                } catch (e) {
+                  console.error('Failed to parse response:', e.message);
+                  console.error('Raw body:', body);
+                  process.exit(1);
+                }
+              });
+            });
+
+            req.on('error', (e) => {
+              console.error('Request error:', e.message);
+              process.exit(1);
+            });
+
+            req.write(payload);
+            req.end();
+          "
+
+      # -----------------------------------------------------------------------
+      # 5. Post Claude's response to the job summary
+      # -----------------------------------------------------------------------
+      - name: Post agent output to job summary
+        run: |
+          echo "## Claude Agent Output" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Department:** \`${{ inputs.department_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Doctors:** \`${{ inputs.doctor_names }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Changes proposed by Claude" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cat /tmp/agent-output.txt >> $GITHUB_STEP_SUMMARY
+
+      # -----------------------------------------------------------------------
+      # 6. Apply Prisma migrations and run the seed script against the database
+      #    Uses upsert/createMany — safe to run on an existing database.
+      # -----------------------------------------------------------------------
+      - name: Run Prisma migrations
+        working-directory: backend
+        run: npx prisma migrate deploy
+
+      - name: Seed database with new department data
+        working-directory: backend
+        run: |
+          echo "Seeding department: ${{ inputs.department_name }}"
+          node prisma/seed.js
+
+      # -----------------------------------------------------------------------
+      # 7. Verify the new department appears in the /api/departments endpoint
+      #    Start the backend in the background, poll until ready, then curl.
+      # -----------------------------------------------------------------------
+      - name: Start backend server for verification
+        working-directory: backend
+        env:
+          NODE_ENV: test
+          PORT: 3001
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_PHONE_NUMBER: ${{ secrets.TWILIO_PHONE_NUMBER }}
+          PHONE_ENCRYPTION_KEY: ${{ secrets.PHONE_ENCRYPTION_KEY }}
+        run: |
+          node src/app.js &
+          # Wait up to 30 s for the server to accept connections
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3001/api/departments > /dev/null 2>&1 && break
+            echo "Waiting for server... attempt $i/30"
+            sleep 1
+          done
+
+      - name: Verify new department appears in API response
+        run: |
+          RESPONSE=$(curl -sf http://localhost:3001/api/departments)
+          echo "API response: $RESPONSE"
+
+          DEPT_NAME="${{ inputs.department_name }}"
+          if echo "$RESPONSE" | grep -qi "$DEPT_NAME"; then
+            echo "PASS: '$DEPT_NAME' found in /api/departments response."
+            echo "### Verification" >> $GITHUB_STEP_SUMMARY
+            echo "**PASS** — \`$DEPT_NAME\` appears in \`/api/departments\`." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "FAIL: '$DEPT_NAME' NOT found in /api/departments response."
+            echo "### Verification" >> $GITHUB_STEP_SUMMARY
+            echo "**FAIL** — \`$DEPT_NAME\` was NOT found in \`/api/departments\` response." >> $GITHUB_STEP_SUMMARY
+            echo "Full response: $RESPONSE" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+      # -----------------------------------------------------------------------
+      # 8. (Optional) Run the full backend test suite
+      # -----------------------------------------------------------------------
+      - name: Run backend test suite
+        if: ${{ inputs.run_tests == 'true' }}
+        working-directory: backend
+        env:
+          NODE_ENV: test
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_PHONE_NUMBER: ${{ secrets.TWILIO_PHONE_NUMBER }}
+          PHONE_ENCRYPTION_KEY: ${{ secrets.PHONE_ENCRYPTION_KEY }}
+        run: |
+          npm test 2>&1 | tee /tmp/test-output.txt
+          TEST_EXIT=${PIPESTATUS[0]}
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Test Suite Results" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$TEST_EXIT" -eq 0 ]; then
+            echo "**PASS** — All tests passed after seeding \`${{ inputs.department_name }}\`." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**FAIL** — One or more tests failed. See log below." >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -50 /tmp/test-output.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+          exit $TEST_EXIT

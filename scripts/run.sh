@@ -32,6 +32,7 @@ step()    { echo -e "\n${BOLD}${CYAN}──── $* ────${RESET}"; }
 die()     { error "$*"; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # ── Background PID tracking ───────────────────────────────────────────────────
 PIDS=()
@@ -47,7 +48,7 @@ cleanup() {
   done
   if [[ "${MODE:-dev}" == "dev" ]]; then
     info "Stopping Docker DB container"
-    docker compose -f "$SCRIPT_DIR/docker-compose.yml" stop db 2>/dev/null || true
+    docker compose -f "$ROOT/docker-compose.yml" stop db 2>/dev/null || true
   fi
   success "All services stopped. Goodbye!"
 }
@@ -128,8 +129,8 @@ check_prereqs() {
 # ── .env setup ────────────────────────────────────────────────────────────────
 setup_env() {
   step "Environment configuration"
-  local env_file="$SCRIPT_DIR/.env"
-  local example_file="$SCRIPT_DIR/.env.example"
+  local env_file="$ROOT/.env"
+  local example_file="$ROOT/.env.example"
 
   if [[ ! -f "$env_file" ]]; then
     info "Copying .env.example → .env"
@@ -144,7 +145,7 @@ setup_env() {
   if [[ -z "$current_hash" ]]; then
     info "Generating bcrypt hash for default password 'admin123'..."
     local hash
-    hash=$(cd "$SCRIPT_DIR/backend" && node -e "
+    hash=$(cd "$ROOT/backend" && node -e "
       require('bcrypt').hash('admin123', 10).then(h => process.stdout.write(h));
     " 2>/dev/null)
     if [[ -n "$hash" ]]; then
@@ -162,10 +163,10 @@ setup_env() {
 # ── Docker helpers ─────────────────────────────────────────────────────────────
 start_db() {
   step "Starting PostgreSQL (Docker)"
-  docker compose -f "$SCRIPT_DIR/docker-compose.yml" up -d db
+  docker compose -f "$ROOT/docker-compose.yml" up -d db
   info "Waiting for PostgreSQL to be ready..."
   local retries=30
-  until docker compose -f "$SCRIPT_DIR/docker-compose.yml" exec -T db \
+  until docker compose -f "$ROOT/docker-compose.yml" exec -T db \
       pg_isready -U postgres &>/dev/null; do
     ((retries--)) || die "PostgreSQL did not become ready after 30 attempts"
     sleep 1
@@ -179,16 +180,16 @@ start_db() {
 install_deps() {
   step "Installing dependencies"
 
-  if [[ ! -d "$SCRIPT_DIR/backend/node_modules" ]]; then
+  if [[ ! -d "$ROOT/backend/node_modules" ]]; then
     info "Installing backend dependencies..."
-    (cd "$SCRIPT_DIR/backend" && npm install --silent)
+    (cd "$ROOT/backend" && npm install --silent)
   else
     success "Backend node_modules already present (skip)"
   fi
 
-  if [[ ! -d "$SCRIPT_DIR/frontend/node_modules" ]]; then
+  if [[ ! -d "$ROOT/frontend/node_modules" ]]; then
     info "Installing frontend dependencies..."
-    (cd "$SCRIPT_DIR/frontend" && npm install --silent)
+    (cd "$ROOT/frontend" && npm install --silent)
   else
     success "Frontend node_modules already present (skip)"
   fi
@@ -197,17 +198,17 @@ install_deps() {
 # ── Database setup ─────────────────────────────────────────────────────────────
 setup_database() {
   step "Database setup"
-  local env_file="$SCRIPT_DIR/.env"
+  local env_file="$ROOT/.env"
 
   info "Generating Prisma client..."
-  (cd "$SCRIPT_DIR/backend" && npx prisma generate --schema=prisma/schema.prisma 2>/dev/null)
+  (cd "$ROOT/backend" && npx prisma generate --schema=prisma/schema.prisma 2>/dev/null)
 
   info "Running migrations..."
-  (cd "$SCRIPT_DIR/backend" && env $(grep -v '^#' "$env_file" | xargs) npx prisma migrate deploy 2>&1 \
+  (cd "$ROOT/backend" && env $(grep -v '^#' "$env_file" | xargs) npx prisma migrate deploy 2>&1 \
     | grep -E 'Applying|already|sync|error' || true)
 
   info "Seeding database..."
-  (cd "$SCRIPT_DIR/backend" && env $(grep -v '^#' "$env_file" | xargs) node prisma/seed.js 2>&1 \
+  (cd "$ROOT/backend" && env $(grep -v '^#' "$env_file" | xargs) node prisma/seed.js 2>&1 \
     | grep -E '✓|Seeding|complete|error' || true)
 
   success "Database ready"
@@ -216,16 +217,16 @@ setup_database() {
 # ── Start services ─────────────────────────────────────────────────────────────
 start_dev_services() {
   step "Starting application (dev mode)"
-  local env_file="$SCRIPT_DIR/.env"
+  local env_file="$ROOT/.env"
 
   info "Starting API server on port 4000..."
-  (cd "$SCRIPT_DIR/backend" && env $(grep -v '^#' "$env_file" | xargs) npm run dev \
-    >> "$SCRIPT_DIR/backend/api.log" 2>&1) &
+  (cd "$ROOT/backend" && env $(grep -v '^#' "$env_file" | xargs) npm run dev \
+    >> "$ROOT/backend/api.log" 2>&1) &
   PIDS+=($!)
   success "API server started (PID ${PIDS[-1]}) — logs: backend/api.log"
 
   info "Starting frontend dev server on port 3000..."
-  (cd "$SCRIPT_DIR/frontend" && npm run dev >> "$SCRIPT_DIR/frontend/frontend.log" 2>&1) &
+  (cd "$ROOT/frontend" && npm run dev >> "$ROOT/frontend/frontend.log" 2>&1) &
   PIDS+=($!)
   success "Frontend started (PID ${PIDS[-1]}) — logs: frontend/frontend.log"
 
@@ -242,7 +243,7 @@ start_dev_services() {
 
 start_docker_services() {
   step "Starting full Docker Compose stack"
-  docker compose -f "$SCRIPT_DIR/docker-compose.yml" up --build -d
+  docker compose -f "$ROOT/docker-compose.yml" up --build -d
   success "All services started"
 }
 
@@ -276,7 +277,7 @@ print_ready() {
 # ── Mode: stop ─────────────────────────────────────────────────────────────────
 do_stop() {
   step "Stopping all services"
-  docker compose -f "$SCRIPT_DIR/docker-compose.yml" stop 2>/dev/null || true
+  docker compose -f "$ROOT/docker-compose.yml" stop 2>/dev/null || true
   pkill -f "node src/server.js" 2>/dev/null || true
   pkill -f "vite" 2>/dev/null || true
   success "All services stopped"
@@ -289,7 +290,7 @@ do_clean() {
   warn "This will DELETE all appointment data. Are you sure? [y/N]"
   read -r confirm
   if [[ "$confirm" =~ ^[Yy]$ ]]; then
-    docker compose -f "$SCRIPT_DIR/docker-compose.yml" down -v 2>/dev/null || true
+    docker compose -f "$ROOT/docker-compose.yml" down -v 2>/dev/null || true
     pkill -f "node src/server.js" 2>/dev/null || true
     pkill -f "vite" 2>/dev/null || true
     success "Cleaned up — volumes removed"
@@ -305,17 +306,17 @@ do_test() {
   check_prereqs
 
   info "Starting test database..."
-  docker compose -f "$SCRIPT_DIR/docker-compose.yml" up -d db
+  docker compose -f "$ROOT/docker-compose.yml" up -d db
   sleep 3
 
   info "Running Jest test suite..."
-  (cd "$SCRIPT_DIR/backend" && npm test)
+  (cd "$ROOT/backend" && npm test)
 
   info "Running document quality check..."
-  node "$SCRIPT_DIR/scripts/check-docs.js"
+  node "$ROOT/scripts/check-docs.js"
 
   success "All verification complete"
-  docker compose -f "$SCRIPT_DIR/docker-compose.yml" stop db 2>/dev/null || true
+  docker compose -f "$ROOT/docker-compose.yml" stop db 2>/dev/null || true
   exit 0
 }
 

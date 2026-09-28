@@ -36,7 +36,7 @@ param(
 $ErrorActionPreference = 'Continue'
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-$Root       = $PSScriptRoot
+$Root       = Split-Path $PSScriptRoot -Parent   # project root (parent of scripts/)
 $EnvFile    = Join-Path $Root '.env'
 $EnvExample = Join-Path $Root '.env.example'
 $Compose    = Join-Path $Root 'docker-compose.yml'

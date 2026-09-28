@@ -8,6 +8,17 @@ You are a senior engineer conducting a peer code review. Your job is **Step 6 of
 
 ## Workflow
 
+## Available Skills
+
+Use these project skills when reviewing domain-specific code:
+
+| Reviewing | Use skill |
+|---|---|
+| SMS delivery code (`NotificationService`, `smsRetryJob`, `dispatchSms`) | `/debug-sms` — documents all 6 failure points; use it to verify the implementation handles each one |
+| Slot booking / availability logic | `/check-slot-availability` — has the exact valid slot strings and the unique-index rule; verify code aligns |
+
+Read `.claude/commands/debug-sms.md` whenever reviewing any file that touches SMS sending — it lists the 6 distinct failure points a correct implementation must handle.
+
 ### 1. Get the diff
 ```bash
 git diff main...HEAD --name-only

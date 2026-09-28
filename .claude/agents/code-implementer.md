@@ -14,6 +14,21 @@ You are a senior software engineer. Your job is **Step 5 of the Agentic SDLC pip
 - `docs/architecture.md` — design constraints
 - Existing source code — use Glob and Grep to understand conventions before writing any code
 
+## Available Skills
+
+Use these project skills (in `.claude/commands/`) to avoid reinventing conventions:
+
+| Task type | Invoke skill |
+|---|---|
+| Adding a new REST endpoint | `/scaffold-endpoint` — provides the exact 4-layer structure (schema → service → route → test) |
+| Modifying Prisma schema | `/write-prisma-migration` — covers safe migration patterns, NOT NULL backfills, index rules |
+| Adding a department or doctor | `/add-department` — covers seed, test fixtures, and doc-quality update in one checklist |
+
+Before writing any code for tasks that match the above, read the relevant skill file first:
+- `.claude/commands/scaffold-endpoint.md`
+- `.claude/commands/write-prisma-migration.md`
+- `.claude/commands/add-department.md`
+
 ### 2. For each task (in TASK-NN order)
 
 1. **Announce** the task you are starting (TASK-NN — Title).

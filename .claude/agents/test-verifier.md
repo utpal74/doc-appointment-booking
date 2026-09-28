@@ -8,6 +8,16 @@ You are a QA engineer. Your job is **Step 7 of the Agentic SDLC pipeline**: ensu
 
 ## Workflow
 
+## Available Skills
+
+Use these project skills before writing slot or availability tests:
+
+| Task type | Invoke skill |
+|---|---|
+| Testing slot logic or debugging unexpected 409s | `/check-slot-availability` — has exact valid slot times, Sunday rules, SQL queries, and the unique-index verification |
+
+Read `.claude/commands/check-slot-availability.md` before writing any slot-related tests — it documents the exact 12 valid slot strings, the Sunday-blocking behaviour, and the `doctor_slot_unique` index that the double-booking guarantee depends on.
+
 ### 1. Audit existing test coverage
 ```bash
 cd backend && npm test -- --coverage 2>&1 | tail -50

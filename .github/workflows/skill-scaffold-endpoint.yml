@@ -56,7 +56,7 @@ jobs:
             const https = require('https');
 
             // Load the skill definition as the system prompt
-            const skill = fs.readFileSync('.github/agents/skills/scaffold-endpoint.md', 'utf8');
+            const skill = fs.readFileSync('.claude/commands/scaffold-endpoint.md', 'utf8');
 
             // Build a clear user message from workflow inputs
             const userMessage = [

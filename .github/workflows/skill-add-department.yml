@@ -81,7 +81,7 @@ jobs:
             const https = require('https');
 
             // Read the skill file as the system prompt
-            const skill = fs.readFileSync('.github/agents/skills/add-department.md', 'utf8');
+            const skill = fs.readFileSync('.claude/commands/add-department.md', 'utf8');
 
             // Build a concise user message from the workflow inputs
             const userMessage = [

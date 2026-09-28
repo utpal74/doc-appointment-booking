@@ -1,7 +1,7 @@
 # Skill: Check Slot Availability
 # Runs on a weekly schedule (Monday 6am UTC) and on demand via workflow_dispatch.
 # Connects to PostgreSQL and executes slot-availability diagnostics defined in
-# .github/agents/skills/check-slot-availability.md — no Claude API call required.
+# .claude/commands/check-slot-availability.md — no Claude API call required.
 
 name: "Skill: Check Slot Availability"
 

@@ -263,7 +263,7 @@ jobs:
           const fs   = require('fs');
           const https = require('https');
 
-          const skillPath = '.github/agents/skills/debug-sms.md';
+          const skillPath = '.claude/commands/debug-sms.md';
           const skill = fs.readFileSync(skillPath, 'utf8');
           const diagData = fs.existsSync('/tmp/diag-output.txt')
             ? fs.readFileSync('/tmp/diag-output.txt', 'utf8')

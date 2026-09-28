@@ -1,28 +1,29 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git status)",
-      "Bash(git log *)",
-      "Bash(git diff *)",
-      "Bash(git branch *)",
-      "Bash(git checkout *)",
-      "Bash(git add docs/*)",
-      "Bash(git add backend/tests/*)",
-      "Bash(git add backend/__tests__/*)",
-      "Bash(git commit -m *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
       "Bash(git push *)",
+      "Bash(git checkout *)",
+      "Bash(git merge *)",
       "Bash(git remote *)",
       "Bash(git stash *)",
       "Bash(gh pr *)",
       "Bash(gh auth *)",
-      "Bash(ls docs/*)",
-      "Bash(ls docs/input/*)",
+      "Bash(npm test)",
+      "Bash(npm test *)",
+      "Bash(cd backend && npm test *)",
+      "Bash(cd backend && npm audit *)",
+      "Bash(node scripts/*)",
       "Bash(python -c *)",
       "Bash(python3 -c *)",
       "Bash(powershell.exe -Command *)",
-      "Bash(cd backend && npm test*)",
-      "Bash(cd backend && npm audit*)",
-      "Bash(node scripts/*)"
+      "PowerShell(git add *)",
+      "PowerShell(git commit *)",
+      "PowerShell(git push *)",
+      "PowerShell(git checkout *)",
+      "PowerShell(Set-Location \"c:\\Users\\Utpal_Kumar2\\Documents\\Capstone\\claude-capstone\\doc-appointment-booking\"; git *)",
+      "PowerShell(Set-Location \"c:\\Users\\Utpal_Kumar2\\Documents\\Capstone\\claude-capstone\\doc-appointment-booking\"\ngit *)"
     ]
   },
   "hooks": {

@@ -71,7 +71,7 @@ jobs:
             const fs   = require('fs');
             const https = require('https');
 
-            const skill = fs.readFileSync('.github/agents/skills/write-prisma-migration.md', 'utf8');
+            const skill = fs.readFileSync('.claude/commands/write-prisma-migration.md', 'utf8');
 
             const userMessage = [
               'Migration name (--name flag): ${{ inputs.migration_name }}',

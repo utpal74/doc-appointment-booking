@@ -7,15 +7,18 @@ development lifecycle.
 ## Directory Structure
 
 ```
-agents/
-├── pre-hooks/      Agents that run BEFORE a PR is merged
-│   ├── 01-test-runner.md        Block merge if any Jest test fails
-│   ├── 02-doc-quality.md        Block merge if doc coverage < 100 %
-│   └── 03-security-scan.md      Block merge on high-severity vulnerabilities
-└── post-hooks/     Agents that run AFTER a PR is merged to main
-    ├── 01-changelog-update.md   Append a new entry to CHANGELOG.md
-    ├── 02-smoke-test.md         Verify the deployed service is healthy
-    └── 03-pr-summary.md         Generate a human-readable release note
+.github/agents/
+├── hooks/
+│   ├── pre/        Agents that run BEFORE a PR is merged
+│   │   ├── 01-test-runner.md        Block merge if any Jest test fails
+│   │   ├── 02-doc-quality.md        Block merge if doc coverage < 100 %
+│   │   └── 03-security-scan.md      Block merge on high-severity vulnerabilities
+│   └── post/       Agents that run AFTER a PR is merged to main
+│       ├── 01-changelog-update.md   Append a new entry to CHANGELOG.md
+│       ├── 02-smoke-test.md         Verify the deployed service is healthy
+│       └── 03-pr-summary.md         Generate a human-readable release note
+├── instructions/   This overview and other developer-guidance docs
+└── skills/         Reusable skill definitions for AI-assisted workflows
 ```
 
 ## How Agents Are Triggered
@@ -24,8 +27,8 @@ Agents are invoked by GitHub Actions workflows in `.github/workflows/`:
 
 | Workflow | Trigger | Agents invoked |
 |---|---|---|
-| `agentic-pre-hooks.yml` | PR opened / synchronised | All `pre-hooks/` agents |
-| `agentic-post-merge.yml` | Push to `main` | All `post-hooks/` agents |
+| `agentic-pre-hooks.yml` | PR opened / synchronised | All `agents/hooks/pre/` agents |
+| `agentic-post-merge.yml` | Push to `main` | All `agents/hooks/post/` agents |
 
 ## Running Agents Locally
 

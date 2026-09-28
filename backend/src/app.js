@@ -52,12 +52,10 @@ app.use(globalLimiter);
 // Public routes
 app.use('/health', healthRouter);
 app.use('/api/auth', authRouter);
-
-// Protected routes
-app.use('/api/departments', authenticate, departmentsRouter);
-app.use('/api/doctors', authenticate, doctorsRouter);
-app.use('/api/slots', authenticate, slotsRouter);
-app.use('/api/appointments', authenticate, appointmentsRouter);
+app.use('/api/departments', departmentsRouter);
+app.use('/api/doctors', doctorsRouter);
+app.use('/api/slots', slotsRouter);
+app.use('/api/appointments', appointmentsRouter);
 
 // Global error handler — only domain errors (status < 500) expose their message
 app.use((err, req, res, _next) => {

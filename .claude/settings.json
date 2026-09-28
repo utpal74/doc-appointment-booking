@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(git branch *)",
+      "Bash(git checkout *)",
+      "Bash(git add docs/*)",
+      "Bash(git add backend/tests/*)",
+      "Bash(git add backend/__tests__/*)",
+      "Bash(git commit -m *)",
+      "Bash(git push *)",
+      "Bash(git remote *)",
+      "Bash(git stash *)",
+      "Bash(gh pr *)",
+      "Bash(gh auth *)",
+      "Bash(ls docs/*)",
+      "Bash(ls docs/input/*)",
+      "Bash(python -c *)",
+      "Bash(python3 -c *)",
+      "Bash(powershell.exe -Command *)",
+      "Bash(cd backend && npm test*)",
+      "Bash(cd backend && npm audit*)",
+      "Bash(node scripts/*)"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/check-input-hook.js"
+          }
+        ]
+      }
+    ]
+  }
+}

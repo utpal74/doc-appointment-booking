@@ -23,11 +23,15 @@ Use these project skills (in `.claude/commands/`) to avoid reinventing conventio
 | Adding a new REST endpoint | `/scaffold-endpoint` — provides the exact 4-layer structure (schema → service → route → test) |
 | Modifying Prisma schema | `/write-prisma-migration` — covers safe migration patterns, NOT NULL backfills, index rules |
 | Adding a department or doctor | `/add-department` — covers seed, test fixtures, and doc-quality update in one checklist |
+| Changing SMS delivery | `/debug-sms` — documents the SMS flow and failure points to preserve while implementing changes |
+| Changing slot booking or availability | `/check-slot-availability` — documents valid slots, Sunday behavior, and the database uniqueness guarantee |
 
 Before writing any code for tasks that match the above, read the relevant skill file first:
 - `.claude/commands/scaffold-endpoint.md`
 - `.claude/commands/write-prisma-migration.md`
 - `.claude/commands/add-department.md`
+- `.claude/commands/debug-sms.md`
+- `.claude/commands/check-slot-availability.md`
 
 ### 2. For each task (in TASK-NN order)
 

@@ -15,8 +15,10 @@ Use these project skills before writing slot or availability tests:
 | Task type | Invoke skill |
 |---|---|
 | Testing slot logic or debugging unexpected 409s | `/check-slot-availability` — has exact valid slot times, Sunday rules, SQL queries, and the unique-index verification |
+| Testing SMS delivery or retry behavior | `/debug-sms` — documents the delivery flow and failure points that tests should cover |
 
 Read `.claude/commands/check-slot-availability.md` before writing any slot-related tests — it documents the exact 12 valid slot strings, the Sunday-blocking behaviour, and the `doctor_slot_unique` index that the double-booking guarantee depends on.
+Read `.claude/commands/debug-sms.md` before writing SMS-related tests so the failure cases align with the actual delivery and retry flow.
 
 ### 1. Audit existing test coverage
 ```bash

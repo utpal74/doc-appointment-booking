@@ -107,11 +107,9 @@ GitHub Actions workflows in [`.github/workflows/`](.github/workflows/):
 
 | Workflow | Trigger | Jobs |
 |---|---|---|
-| `ci.yml` | Every PR to `main` | Tests · Doc quality · Frontend build |
-| `agentic-pre-hooks.yml` | PR opened / updated | Security scan · Doc gate · PR description check |
-| `agentic-post-merge.yml` | Merge to `main` | Deployment health · Smoke test |
+| `ci.yml` | Pull requests to `main` and pushes to `main` | Backend tests · Doc quality · Frontend build |
 
-Claude Agent definitions in [`.github/agents/`](.github/agents/) automate pre-merge blocking checks and post-merge release tasks.
+Claude Agent definitions are in [`.claude/agents/`](.claude/agents/), and reusable project skills are in [`.claude/commands/`](.claude/commands/). Pre- and post-merge check instructions are in [`.github/hooks/`](.github/hooks/).
 
 ---
 

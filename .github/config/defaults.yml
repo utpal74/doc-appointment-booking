@@ -1,0 +1,19 @@
+# Agent configuration defaults
+# All hook and skill agents inherit these values.
+# Override per-agent by redeclaring the field in that file's frontmatter.
+
+model: claude-sonnet-4-6
+anthropic_api_version: "2023-06-01"
+max_tokens: 2048
+
+# Hook defaults
+hooks:
+  pre_merge:
+    blocking: true       # failed pre-hook blocks the merge
+  post_merge:
+    blocking: false      # failed post-hook logs a warning, does not revert
+
+# Skill defaults
+skills:
+  max_tokens: 2048       # skills may produce longer output; override per-skill if needed
+  post_to_summary: true  # write Claude output to $GITHUB_STEP_SUMMARY by default

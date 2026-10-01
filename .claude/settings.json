@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git checkout *)",
+      "Bash(git merge *)",
+      "Bash(git remote *)",
+      "Bash(git stash *)",
+      "Bash(gh pr *)",
+      "Bash(gh auth *)",
+      "Bash(npm test)",
+      "Bash(npm test *)",
+      "Bash(cd backend && npm test *)",
+      "Bash(cd backend && npm audit *)",
+      "Bash(node scripts/*)",
+      "Bash(python -c *)",
+      "Bash(python3 -c *)",
+      "Bash(powershell.exe -Command *)",
+      "PowerShell(git add *)",
+      "PowerShell(git commit *)",
+      "PowerShell(git push *)",
+      "PowerShell(git checkout *)",
+      "PowerShell(Set-Location \"c:\\Users\\Utpal_Kumar2\\Documents\\Capstone\\claude-capstone\\doc-appointment-booking\"; git *)",
+      "PowerShell(Set-Location \"c:\\Users\\Utpal_Kumar2\\Documents\\Capstone\\claude-capstone\\doc-appointment-booking\"\ngit *)"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/check-input-hook.js"
+          }
+        ]
+      }
+    ]
+  }
+}

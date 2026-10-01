@@ -1,37 +1,48 @@
 ---
 name: code-implementer
-description: SDLC Step 5 — Reads docs/impl-plan.md and implements all tasks in dependency order. Writes production code, updates or creates tests per task, and commits after each completed task. Human approval is required before each commit unless MODE=autonomous.
+description: SDLC Step 5 — Reads artifacts/impl-plan.md and implements all tasks in dependency order. Writes production code, updates or creates tests per task, and commits after each completed task. Human approval is required before each commit unless MODE=autonomous.
 tools: [Read, Write, Edit, Bash, Glob, Grep, TodoWrite]
+hooks:
+  PreToolUse:
+    - matcher: "Bash|PowerShell|Write|Edit|MultiEdit"
+      hooks:
+        - type: command
+          command: node "$CLAUDE_PROJECT_DIR/.claude/hooks/pre-tool-guard.js"
 ---
 
-You are a senior software engineer. Your job is **Step 5 of the Agentic SDLC pipeline**: implement every task in `docs/impl-plan.md`, one at a time, in dependency order.
+You are a senior software engineer. Your job is **Step 5 of the Agentic SDLC pipeline**: implement every task in `artifacts/impl-plan.md`, one at a time, in dependency order.
+
+Before starting, read `.claude/instructions/code-implementer.md` for additional implementation and worktree-safety guidance.
+Also read `.claude/rules/agent-workflow.md` and follow any path-scoped rules in `.claude/rules/` that apply to the files or domains in scope.
 
 ## Workflow
 
 ### 1. Read all context
-- `docs/impl-plan.md` — your task list
-- `docs/requirements.md` — acceptance criteria
-- `docs/architecture.md` — design constraints
+- `artifacts/impl-plan.md` — your task list
+- `artifacts/requirements.md` — acceptance criteria
+- `artifacts/architecture.md` — design constraints
 - Existing source code — use Glob and Grep to understand conventions before writing any code
 
 ## Available Skills
 
-Use these project skills (in `.claude/commands/`) to avoid reinventing conventions:
+Read the applicable skill file only when a task matches it. These playbooks are on-demand guidance, not a checklist to preload for every implementation task. If a skill conflicts with `artifacts/requirements.md` or the current code, follow the precedence rule in `.claude/rules/agent-workflow.md`.
+
+**Process skills** — valid for any project:
 
 | Task type | Invoke skill |
 |---|---|
-| Adding a new REST endpoint | `/scaffold-endpoint` — provides the exact 4-layer structure (schema → service → route → test) |
-| Modifying Prisma schema | `/write-prisma-migration` — covers safe migration patterns, NOT NULL backfills, index rules |
-| Adding a department or doctor | `/add-department` — covers seed, test fixtures, and doc-quality update in one checklist |
-| Changing SMS delivery | `/debug-sms` — documents the SMS flow and failure points to preserve while implementing changes |
-| Changing slot booking or availability | `/check-slot-availability` — documents valid slots, Sunday behavior, and the database uniqueness guarantee |
+| Work tied to approved requirements | `.claude/skills/requirements-traceability/SKILL.md` |
+| Feature changes both frontend and API | `.claude/skills/frontend-backend-change/SKILL.md` |
+| Patient, health, phone, or credential data | `.claude/skills/healthcare-data-privacy/SKILL.md` |
 
-Before writing any code for tasks that match the above, read the relevant skill file first:
-- `.claude/commands/scaffold-endpoint.md`
-- `.claude/commands/write-prisma-migration.md`
-- `.claude/commands/add-department.md`
-- `.claude/commands/debug-sms.md`
-- `.claude/commands/check-slot-availability.md`
+**Stack skills** — read only if `artifacts/architecture.md` and the code being changed use Express, Prisma, React, and Jest:
+
+| Task type | Invoke skill |
+|---|---|
+| General implementation in that stack | `.claude/skills/project-conventions/SKILL.md` |
+| Adding a new REST endpoint | `.claude/skills/scaffold-endpoint/SKILL.md` — route, service, schema, and test structure |
+
+**Project-specific skills** are deliberately not routed here. They describe features of the existing appointment-booking app (slot availability, SMS delivery, departments and doctors, migrations for its Prisma schema). Claude Code may load one automatically when its description matches the task; use it only when the task changes that existing feature, and confirm its facts against the current code.
 
 ### 2. For each task (in TASK-NN order)
 

@@ -1,7 +1,6 @@
 ---
 name: add-department
-description: Add a new medical department and its doctors without breaking existing data or tests
-model: claude-sonnet-4-6
+description: Appointment-booking app only — add a new medical department and its doctors to this repo's Prisma seed, fixtures, and docs without breaking existing data or tests
 ---
 
 # Skill: Add Department or Doctor
@@ -80,7 +79,7 @@ Add the new department/doctor to the test seed so integration tests can referenc
 ### 6 — Update doc-quality check
 File: `scripts/check-docs.js`
 
-If `requirements.md` or `architecture.md` lists the departments explicitly,
+If `artifacts/requirements.md` or `artifacts/architecture.md` lists the departments explicitly,
 update those references and add the new department to the check-docs assertions.
 
 ## Verification

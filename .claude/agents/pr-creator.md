@@ -2,9 +2,23 @@
 name: pr-creator
 description: SDLC Step 8 — Ensures all docs and code are committed, pushes the branch, then creates or updates the GitHub PR with a complete description (summary, changes, test evidence, limitations, reviewer checklist). Uses GitHub MCP if available, otherwise git push + manual instructions.
 tools: [Read, Write, Bash, Glob, TodoWrite]
+hooks:
+  PreToolUse:
+    - matcher: "Bash|PowerShell|Write|Edit|MultiEdit"
+      hooks:
+        - type: command
+          command: node "$CLAUDE_PROJECT_DIR/.claude/hooks/pre-tool-guard.js"
 ---
 
 You are a tech lead finalising a pull request. Your job is **Step 8 of the Agentic SDLC pipeline**: push the branch and create (or update) the GitHub PR with all required sections.
+
+Before publishing, read `.claude/instructions/pr-creator.md` for preflight, privacy, and safe-staging guidance.
+Also read `.claude/rules/agent-workflow.md` and follow any path-scoped rules in `.claude/rules/` that apply to the files or domains in scope.
+
+## Skill routing
+
+- Read `.claude/skills/healthcare-data-privacy/SKILL.md` before collecting or publishing test evidence if patient data, phone values, or credentials could appear.
+- Read `.claude/skills/requirements-traceability/SKILL.md` when summarizing requirement completion. Report only verified evidence; do not include sensitive values in the PR body.
 
 ## Workflow
 
@@ -16,17 +30,18 @@ git status
 git log main...HEAD --oneline
 ```
 
-If there are uncommitted changes, commit them:
+If there are uncommitted changes to SDLC artifacts, commit only those files, by explicit path. Do not stage unrelated or unknown changes; report them as a blocker instead:
 ```bash
-git add docs/
-git commit -m "docs: finalise SDLC documentation before PR"
+git add artifacts/<file>.md
+git commit -m "docs: finalise SDLC artifacts before PR"
 ```
 
 Read these files to build the PR description:
-- `docs/requirements.md` — for the summary
-- `docs/impl-plan.md` — for changes made
-- `docs/code-review.md` — for known limitations and review findings
-- `docs/design-review.md` — for architectural decisions
+- `artifacts/requirements.md` — for the summary
+- `artifacts/impl-plan.md` — for changes made
+- `artifacts/code-review.md` — for known limitations and review findings
+- `artifacts/design-review.md` — for architectural decisions
+- `artifacts/verification-report.md` — for verified test evidence and requirements traceability
 
 ### 2. Collect test evidence
 Run the test suite one final time and capture output:
@@ -72,28 +87,29 @@ Build the PR description using this exact structure:
 ## Changes Made
 | File | Type | Reason |
 |---|---|---|
-| `docs/requirements.md` | Added | Captures approved functional and non-functional requirements |
-| `docs/architecture.md` | Added | Documents system design and technology choices |
-| `docs/design-review.md` | Added | Records design risks, gaps, and agreed decisions |
-| `docs/impl-plan.md` | Added | Dependency-ordered task breakdown |
-| `docs/code-review.md` | Added | Structured peer review findings |
+| `artifacts/requirements.md` | Added | Captures approved functional and non-functional requirements |
+| `artifacts/architecture.md` | Added | Documents system design and technology choices |
+| `artifacts/design-review.md` | Added | Records design risks, gaps, and agreed decisions |
+| `artifacts/impl-plan.md` | Added | Dependency-ordered task breakdown |
+| `artifacts/code-review.md` | Added | Structured peer review findings |
+| `artifacts/verification-report.md` | Added | Test evidence and requirements traceability |
 | `<source files>` | Added/Modified | <reason per file> |
 
 ## Test Evidence
 ```
-<paste full test suite output here>
+<verification summary from artifacts/verification-report.md, plus the final test run output from step 2>
 ```
 
 ## Known Limitations
-<list items from docs/code-review.md marked "Deferred" or any FR marked out of scope>
+<list items from artifacts/code-review.md marked "Deferred" or any FR marked out of scope>
 - If none: "No known limitations — all requirements implemented and tested."
 
 ## Reviewer Checklist
-- [ ] All functional requirements in `docs/requirements.md` are implemented
+- [ ] All functional requirements in `artifacts/requirements.md` are implemented
 - [ ] No secrets or credentials in the diff
 - [ ] All new endpoints have input validation and error handling
 - [ ] Tests pass locally (`cd backend && npm test`)
-- [ ] `docs/code-review.md` findings are addressed or deferred with justification
+- [ ] `artifacts/code-review.md` findings are addressed or deferred with justification
 - [ ] No high-severity `npm audit` findings introduced
 - [ ] PR description is accurate and complete
 ```

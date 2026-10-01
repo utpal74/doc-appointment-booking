@@ -1,7 +1,6 @@
 ---
 name: write-prisma-migration
-description: Write and apply a safe Prisma migration for this schema, accounting for encrypted fields, unique indexes, and serializable transactions
-model: claude-sonnet-4-6
+description: Appointment-booking app only — write and apply a safe Prisma migration for this repo's schema, accounting for its encrypted fields, partial unique slot index, and serializable transactions
 ---
 
 # Skill: Write Prisma Migration
@@ -31,13 +30,16 @@ Make your change in `backend/prisma/schema.prisma`.
 
 Key constraints to preserve:
 ```prisma
-// Slot uniqueness — never remove this index
-@@unique([doctorId, appointmentDate, slotTime], name: "doctor_slot_unique")
-
-// Self-reference for reschedule chain
-previousAppointmentId  String?  @map("previous_appointment_id")
-previousAppointment    Appointment? @relation("RescheduleChain", fields: [previousAppointmentId], references: [id])
+// Self-reference for reschedule chain (columns are not @map-renamed)
+previousAppointmentId String?
+previousAppointment   Appointment?  @relation("RescheduleChain", fields: [previousAppointmentId], references: [id])
 ```
+
+Slot uniqueness is **not** declared in `schema.prisma`. It is the partial unique
+index `"UX_appt_slot"` on `("doctorId", "appointmentDate", "slotTime") WHERE
+status = 'CONFIRMED'`, created in raw SQL by the `add_slot_unique_index`
+migration. Prisma does not know about it, so never remove it and check that new
+migrations do not drop it. See the `check-slot-availability` skill.
 
 ### 2 — Generate the migration
 ```bash
@@ -54,11 +56,11 @@ cat backend/prisma/migrations/<timestamp>_<name>/migration.sql
 ```
 
 **Red flags to check:**
-- `DROP COLUMN` on `patient_phone` or `patient_phone_hash` — these hold
+- `DROP COLUMN` on `"patientPhone"` or `"patientPhoneHash"` — these hold
   encrypted/hashed PII; dropping them is irreversible
 - `ALTER COLUMN ... SET NOT NULL` on an existing column without a DEFAULT —
   will fail if any rows exist; add a DEFAULT or backfill first
-- Removing `doctor_slot_unique` index — breaks the double-booking guarantee;
+- `DROP INDEX "UX_appt_slot"` — breaks the double-booking guarantee;
   never remove without a replacement constraint
 
 ### 4 — Backfill pattern for NOT NULL additions

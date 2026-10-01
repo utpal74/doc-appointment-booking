@@ -53,11 +53,11 @@ node scripts/check-docs.js   # 181 document quality checks
 
 | Document | Purpose |
 |---|---|
-| [requirements.md](requirements.md) | FR-01–FR-08 and NFR-01–NFR-08 |
-| [architecture.md](architecture.md) | System design, ER diagram, ADRs |
-| [design-review.md](design-review.md) | Pre-code architecture review (12 findings) |
-| [impl-plan.md](impl-plan.md) | 41-task dependency-ordered implementation plan |
-| [code-review.md](code-review.md) | Post-implementation peer review (10 findings, all fixed) |
+| [requirements.md](artifacts/requirements.md) | FR-01–FR-08 and NFR-01–NFR-08 |
+| [architecture.md](artifacts/architecture.md) | System design, ER diagram, ADRs |
+| [design-review.md](artifacts/design-review.md) | Pre-code architecture review (12 findings) |
+| [impl-plan.md](artifacts/impl-plan.md) | 41-task dependency-ordered implementation plan |
+| [code-review.md](artifacts/code-review.md) | Post-implementation peer review (10 findings, all fixed) |
 | [CHANGELOG.md](CHANGELOG.md) | Release history |
 
 ---
@@ -73,7 +73,7 @@ Browser (Receptionist)
                     └── Twilio SMS API (patient notifications)
 ```
 
-Key design decisions: [architecture.md § ADRs](architecture.md#10-key-architecture-decisions)
+Key design decisions: [architecture.md § ADRs](artifacts/architecture.md#10-key-architecture-decisions)
 
 ---
 
@@ -109,7 +109,20 @@ GitHub Actions workflows in [`.github/workflows/`](.github/workflows/):
 |---|---|---|
 | `ci.yml` | Pull requests to `main` and pushes to `main` | Backend tests · Doc quality · Frontend build |
 
-Claude Agent definitions are in [`.claude/agents/`](.claude/agents/), and reusable project skills are in [`.claude/commands/`](.claude/commands/). Pre- and post-merge check instructions are in [`.github/hooks/`](.github/hooks/).
+Claude Agent definitions are in [`.claude/agents/`](.claude/agents/). Shared and stage-specific instructions are in [`.claude/instructions/`](.claude/instructions/), shared and path-scoped rules are in [`.claude/rules/`](.claude/rules/), and reusable project skills are in [`.claude/skills/`](.claude/skills/) as `SKILL.md` files. Agent hooks are in [`.claude/hooks/`](.claude/hooks/); every agent runs `pre-tool-guard.js` before shell and file-write tools to block broad staging, force pushes, destructive resets/cleans, and writes to secret files. Pre- and post-merge check instructions are in [`.github/hooks/`](.github/hooks/).
+
+### GitHub MCP server (Claude Code)
+
+The shared [`.mcp.json`](.mcp.json) gives Claude Code (and the `pr-creator` agent) the GitHub MCP server. It contains no token or account details; each developer supplies their own fine-grained GitHub personal access token through an environment variable:
+
+1. Install and start Docker (the server runs as `ghcr.io/github/github-mcp-server`).
+2. Create a GitHub PAT with access to this repository (Contents, Pull requests, and Issues read/write).
+3. Set the token in your shell before launching Claude Code — never commit it:
+   - PowerShell: `$env:GITHUB_PERSONAL_ACCESS_TOKEN = Read-Host -AsSecureString "GitHub PAT" | ConvertFrom-SecureString -AsPlainText` (PowerShell 7+)
+   - bash/zsh: `read -rs GITHUB_PERSONAL_ACCESS_TOKEN && export GITHUB_PERSONAL_ACCESS_TOKEN`
+4. Run `claude` in the repo and approve the `github` project server when prompted. Check it with `/mcp`.
+
+If the variable is not set, Claude Code shows a missing-variable warning for the `github` server in `/mcp`.
 
 ---
 
@@ -117,12 +130,12 @@ Claude Agent definitions are in [`.claude/agents/`](.claude/agents/), and reusab
 
 This project was built following a structured agentic cycle:
 
-1. **Requirements** — Clarifying Q&A → `requirements.md`
-2. **Architecture** — Component diagrams, tech choices, ADRs → `architecture.md`
-3. **Design Review** — Pre-code review of architecture (12 findings) → `design-review.md`
-4. **Implementation Plan** — 41 dependency-ordered tasks → `impl-plan.md`
+1. **Requirements** — Clarifying Q&A → `artifacts/requirements.md`
+2. **Architecture** — Component diagrams, tech choices, ADRs → `artifacts/architecture.md`
+3. **Design Review** — Pre-code review of architecture (12 findings) → `artifacts/design-review.md`
+4. **Implementation Plan** — 41 dependency-ordered tasks → `artifacts/impl-plan.md`
 5. **Implementation** — Full backend + frontend (53 files, ~7,500 LOC)
-6. **Code Review** — Peer review (10 findings, all fixed) → `code-review.md`
+6. **Code Review** — Peer review (10 findings, all fixed) → `artifacts/code-review.md`
 7. **Tests** — 109 Jest tests + 181 doc checks
 8. **PR** — This pull request, created by Claude Agent Mode
 

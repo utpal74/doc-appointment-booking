@@ -1,7 +1,6 @@
 ---
 name: debug-sms
-description: Diagnose SMS delivery failures by walking through every failure point in the Twilio/NotificationService stack
-model: claude-sonnet-4-6
+description: Appointment-booking app only — diagnose SMS delivery failures in this repo's Twilio NotificationService and SMS retry job by walking through every failure point
 ---
 
 # Skill: Debug SMS Delivery
@@ -25,10 +24,13 @@ cause without guessing.
 SELECT current_setting('app.twilio_configured', true);
 ```
 ```bash
-# In the running container / local shell:
-echo $TWILIO_ACCOUNT_SID   # must start with "AC"
-echo $TWILIO_AUTH_TOKEN    # must be 32 chars
-echo $TWILIO_PHONE_NUMBER  # must be E.164 format, e.g. +14155552671
+# Check presence and shape without printing credential values:
+test -n "${TWILIO_ACCOUNT_SID:-}" && printf 'TWILIO_ACCOUNT_SID: set\n' || printf 'TWILIO_ACCOUNT_SID: missing\n'
+test -n "${TWILIO_AUTH_TOKEN:-}" && printf 'TWILIO_AUTH_TOKEN: set\n' || printf 'TWILIO_AUTH_TOKEN: missing\n'
+case "${TWILIO_PHONE_NUMBER:-}" in
+  +*) printf 'TWILIO_PHONE_NUMBER: configured in E.164 form\n' ;;
+  *) printf 'TWILIO_PHONE_NUMBER: missing or not in E.164 form\n' ;;
+esac
 ```
 If any are missing → `NotificationService.getTwilioClient()` returns `null`
 → smsLog status set to `FAILED`, function returns `'DISABLED'`.

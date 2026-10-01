@@ -1,7 +1,6 @@
 ---
 name: scaffold-endpoint
-description: Add a new REST API endpoint following the project's route→service→schema→test layering
-model: claude-sonnet-4-6
+description: Express + Prisma + Zod + Jest backends only — add a new REST API endpoint following the route→service→schema→test layering used in this repo
 ---
 
 # Skill: Scaffold API Endpoint

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
  * UserPromptSubmit hook — checks docs/input/ for unprocessed user story files.
- * Fires when: at least one input file exists AND it is newer than docs/requirements.md
- * (or requirements.md does not yet exist).
+ * Fires when: at least one .docx/.txt/.md input file exists AND it is newer than
+ * artifacts/requirements.md (or requirements.md does not yet exist).
+ * README.md (any casing), hidden files, and Word lock files (~$*) are never treated as input.
  *
  * Outputs plain text that Claude Code injects as system context.
  */
@@ -11,14 +12,19 @@ const fs = require('fs');
 const path = require('path');
 
 const INPUT_DIR = path.join(process.cwd(), 'docs', 'input');
-const REQ_FILE  = path.join(process.cwd(), 'docs', 'requirements.md');
-const SKIP = new Set(['.gitkeep', 'README.md', '.DS_Store']);
+const REQ_FILE  = path.join(process.cwd(), 'artifacts', 'requirements.md');
+
+function isUserStoryFile(name) {
+  if (name.startsWith('.') || name.startsWith('~$')) return false;
+  if (name.toLowerCase() === 'readme.md') return false;
+  return /\.(docx|txt|md)$/i.test(name);
+}
 
 function getInputFiles() {
   try {
     return fs.readdirSync(INPUT_DIR)
-      .filter(f => !SKIP.has(f) && !f.startsWith('.'))
-      .filter(f => /\.(docx|txt|md|pdf)$/i.test(f))
+      .filter(isUserStoryFile)
+      .filter(f => fs.statSync(path.join(INPUT_DIR, f)).isFile())
       .map(f => ({ name: f, mtime: fs.statSync(path.join(INPUT_DIR, f)).mtimeMs }));
   } catch {
     return [];

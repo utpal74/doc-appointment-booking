@@ -12,9 +12,11 @@ Place your user story document here before starting the SDLC pipeline.
 
 ## How it works
 
-1. Drop your file here (e.g. `user-story.docx`).
-2. The next time you type anything in Claude Code, the `check-input-hook.js` script detects the file and automatically triggers the `sdlc-orchestrator` agent.
-3. The orchestrator runs all 8 SDLC steps unattended and opens a PR when complete.
+1. Drop your file here (e.g. `user-story.txt`).
+2. The next time you type anything in Claude Code, the `scripts/check-input-hook.js` hook detects the file and automatically triggers the `sdlc-orchestrator` agent. It fires only when the file is newer than `artifacts/requirements.md` (or that file does not exist).
+3. The orchestrator runs all 8 SDLC steps unattended, writes every generated document to the root `artifacts/` folder, and opens a PR when complete.
+
+This `README.md` is never treated as a user story (in any casing: `README.md`, `Readme.md`, `readme.md`), nor are hidden files such as `.gitkeep` or Word lock files (`~$*.docx`).
 
 ## Manual trigger
 

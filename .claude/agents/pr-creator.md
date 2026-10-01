@@ -1,7 +1,7 @@
 ---
 name: pr-creator
-description: SDLC Step 8 — Ensures all docs and code are committed, pushes the branch, then creates or updates the GitHub PR with a complete description (summary, changes, test evidence, limitations, reviewer checklist). Uses GitHub MCP if available, otherwise git push + manual instructions.
-tools: [Read, Write, Bash, Glob, TodoWrite]
+description: SDLC Step 8 — Ensures all docs and code are committed, pushes the branch, then creates or updates the GitHub PR with a complete description (summary, changes, test evidence, limitations, reviewer checklist). Uses GitHub MCP if available, then gh CLI, then curl against the GitHub REST API (GITHUB_PERSONAL_ACCESS_TOKEN), then falls back to manual instructions.
+tools: [Read, Write, Bash, Glob, TodoWrite, mcp__github__create_pull_request, mcp__github__update_pull_request, mcp__github__list_pull_requests, mcp__github__search_pull_requests, mcp__github__get_me]
 hooks:
   PreToolUse:
     - matcher: "Bash|PowerShell|Write|Edit|MultiEdit"
@@ -74,7 +74,24 @@ If GitHub MCP tools are not available, attempt `gh` CLI:
 gh pr list --head $(git branch --show-current) --json number,url 2>&1
 ```
 
-If neither is available, output the complete PR description to the terminal and instruct the user to create it manually at `https://github.com/<owner>/<repo>/pull/new/<branch>`.
+If `gh` is not available, use `curl` against the GitHub REST API directly.
+First check for an existing PR:
+```bash
+curl -s -H "Authorization: token $GITHUB_PERSONAL_ACCESS_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/<owner>/<repo>/pulls?head=<owner>:<branch>&state=open"
+```
+
+If no PR exists, create one:
+```bash
+curl -s -X POST \
+  -H "Authorization: token $GITHUB_PERSONAL_ACCESS_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/<owner>/<repo>/pulls" \
+  -d "{\"title\": \"<title>\", \"body\": \"<escaped-body>\", \"head\": \"<branch>\", \"base\": \"main\"}"
+```
+
+If the token is not set (`$GITHUB_PERSONAL_ACCESS_TOKEN` is empty), output the complete PR description to the terminal and instruct the user to create it manually at `https://github.com/<owner>/<repo>/pull/new/<branch>`.
 
 ### 6. PR description template
 

@@ -53,11 +53,11 @@ app.use(globalLimiter);
 app.use('/health', healthRouter);
 app.use('/api/auth', authRouter);
 
-// Protected routes
+// Protected routes — require a valid session
 app.use('/api/departments', authenticate, departmentsRouter);
-app.use('/api/doctors', authenticate, doctorsRouter);
-app.use('/api/slots', authenticate, slotsRouter);
-app.use('/api/appointments', authenticate, appointmentsRouter);
+app.use('/api/doctors',     authenticate, doctorsRouter);
+app.use('/api/slots',       authenticate, slotsRouter);
+app.use('/api/appointments',authenticate, appointmentsRouter);
 
 // Global error handler — only domain errors (status < 500) expose their message
 app.use((err, req, res, _next) => {

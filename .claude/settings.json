@@ -1,0 +1,83 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(gh pr *)",
+      "Bash(gh auth *)",
+      "Bash(gh api *)",
+
+      "Bash(npm install)",
+      "Bash(npm install *)",
+      "Bash(npm ci)",
+      "Bash(npm ci *)",
+      "Bash(npm run *)",
+      "Bash(npm test)",
+      "Bash(npm test *)",
+      "Bash(npm audit *)",
+
+      "Bash(cd backend && npm *)",
+      "Bash(cd backend && npx *)",
+      "Bash(cd backend && node *)",
+      "Bash(cd frontend && npm *)",
+      "Bash(cd frontend && npx *)",
+
+      "Bash(npx prisma *)",
+      "Bash(npx jest *)",
+      "Bash(npx *)",
+
+      "Bash(node scripts/*)",
+      "Bash(node -e *)",
+      "Bash(node src/*)",
+      "Bash(node *)",
+
+      "Bash(docker compose *)",
+      "Bash(docker exec *)",
+      "Bash(docker ps *)",
+      "Bash(docker logs *)",
+
+      "Bash(cp .env.example .env)",
+      "Bash(copy .env.example .env)",
+      "Bash(mkdir *)",
+      "Bash(mkdir -p *)",
+
+      "Bash(python -c *)",
+      "Bash(python3 -c *)",
+      "Bash(powershell.exe -Command *)",
+
+      "Bash(where *)",
+      "Bash(which *)",
+      "Bash(curl *)",
+
+      "PowerShell(git *)",
+      "PowerShell(npm *)",
+      "PowerShell(npx *)",
+      "PowerShell(node *)",
+      "PowerShell(docker *)",
+      "PowerShell(Set-Location *)",
+      "PowerShell(Set-ExecutionPolicy *)",
+      "PowerShell(New-Item *)",
+      "PowerShell(Remove-Item *)",
+      "PowerShell(Copy-Item *)",
+      "PowerShell(Get-ChildItem *)",
+
+      "mcp__github__create_pull_request",
+      "mcp__github__update_pull_request",
+      "mcp__github__list_pull_requests",
+      "mcp__github__search_pull_requests",
+      "mcp__github__get_me"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/check-input-hook.js"
+          }
+        ]
+      }
+    ]
+  }
+}

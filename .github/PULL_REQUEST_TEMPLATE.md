@@ -62,10 +62,10 @@ All document and code checks passed.
 - [ ] Integration tests cover: booking, cancel, reschedule, double-booking, auth
 
 ### Documentation
-- [ ] `requirements.md` — FR-01 through FR-08 all addressed
-- [ ] `architecture.md` — ADR-01 through ADR-07 documented and justified
-- [ ] `design-review.md` — 12 findings, all with Agreed Decisions
-- [ ] `code-review.md` — 10 findings, all with "Fix applied" notes
+- [ ] `artifacts/requirements.md` — FR-01 through FR-08 all addressed
+- [ ] `artifacts/architecture.md` — ADR-01 through ADR-07 documented and justified
+- [ ] `artifacts/design-review.md` — 12 findings, all with Agreed Decisions
+- [ ] `artifacts/code-review.md` — 10 findings, all with "Fix applied" notes
 - [ ] `CHANGELOG.md` — v1.0.0 entry present and accurate
 
 ### Security
